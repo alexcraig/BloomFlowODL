@@ -1,0 +1,9 @@
+module bloomflow {
+    yang-version 1;
+    namespace "urn:opendaylight:params:xml:ns:yang:bloomflow";
+    prefix "bloomflow";
+
+    revision "2015-01-05" {
+        description "Initial revision of bloomflow model";
+    }
+}
