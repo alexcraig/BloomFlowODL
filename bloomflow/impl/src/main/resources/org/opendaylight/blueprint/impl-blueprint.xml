@@ -16,7 +16,7 @@ and is available at http://www.eclipse.org/legal/epl-v10.html
     odl:type="default" />
 
   <reference id="notificationService"
-    interface="org.opendaylight.controller.md.sal.binding.api.NotificationPublishService" />
+    interface="org.opendaylight.controller.sal.binding.api.NotificationProviderService" />
 
   <bean id="provider"
     class="org.carleton.bbnlab.bloomflow.impl.BloomflowProvider"
