@@ -10,6 +10,7 @@ package org.carleton.bbnlab.bloomflow.impl;
 import org.opendaylight.controller.md.sal.binding.api.DataBroker;
 import org.opendaylight.controller.sal.binding.api.NotificationProviderService;
 import org.opendaylight.yangtools.concepts.Registration;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.PacketProcessingService;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.PacketProcessingListener;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.PacketReceived;
 import org.slf4j.Logger;
@@ -21,18 +22,22 @@ public class BloomflowProvider implements PacketProcessingListener {
 
     private final DataBroker dataBroker;
     private final NotificationProviderService notificationService;
+    private final PacketProcessingService packetProcessingService;
     private Registration packetInRegistration;
 
     public BloomflowProvider(final DataBroker dataBroker,
-            final NotificationProviderService notificationService) {
+            final NotificationProviderService notificationService,
+            final PacketProcessingService packetProcessingService) {
         this.dataBroker = dataBroker;
         this.notificationService = notificationService;
+        this.packetProcessingService = packetProcessingService;
     }
 
     /**
      * Method called when the blueprint container is created.
      */
     public void init() {
+        LOG.info("BloomFlowProvider init() called");
         // this.notificationService.registerNotificationListener(this); // Deprecated method
         packetInRegistration = notificationService.registerNotificationListener(this);
         LOG.info("BloomflowProvider Session Initiated");
