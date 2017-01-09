@@ -28,16 +28,22 @@ import org.opendaylight.yangtools.yang.binding.DataObject;
 import org.opendaylight.yangtools.yang.binding.InstanceIdentifier;
 import org.opendaylight.yangtools.concepts.Registration;
 import org.opendaylight.yangtools.concepts.ListenerRegistration;
-
+import org.opendaylight.yang.gen.v1.urn.ietf.params.xml.ns.yang.ietf.inet.types.rev130715.IpVersion;
 import org.opendaylight.yang.gen.v1.urn.ietf.params.xml.ns.yang.ietf.inet.types.rev130715.Uri;
 import org.opendaylight.yang.gen.v1.urn.ietf.params.xml.ns.yang.ietf.yang.types.rev130715.MacAddress;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.Nodes;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.nodes.Node;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.nodes.NodeKey;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.l2.types.rev130827.EtherType;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeId;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeConnectorRef;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeRef;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.node.NodeConnector;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.node.NodeConnectorKey;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.service.rev130819.SalFlowService;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.service.rev130819.AddFlowInputBuilder;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.service.rev130819.AddFlowOutput;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.service.rev130819.FlowTableRef;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.inventory.rev130819.FlowId;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.inventory.rev130819.tables.table.FlowBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.inventory.rev130819.tables.table.FlowKey;
@@ -49,6 +55,7 @@ import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.FlowMo
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.OutputPortValues;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.flow.InstructionsBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.flow.MatchBuilder;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.FlowRef;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instruction.instruction.ApplyActionsCaseBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instruction.instruction.apply.actions._case.ApplyActions;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instruction.instruction.apply.actions._case.ApplyActionsBuilder;
@@ -62,6 +69,7 @@ import org.opendaylight.yang.gen.v1.urn.opendaylight.action.types.rev131112.acti
 import org.opendaylight.yang.gen.v1.urn.opendaylight.action.types.rev131112.action.list.ActionKey;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.ethernet.match.fields.EthernetDestinationBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.ethernet.match.fields.EthernetSourceBuilder;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.ethernet.match.fields.EthernetTypeBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.match.EthernetMatch;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.match.EthernetMatchBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.match.IpMatch;
@@ -83,6 +91,8 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
     private final DataBroker dataBroker;
     private final NotificationProviderService notificationService;
     private final PacketProcessingService packetProcessingService;
+    private final SalFlowService salFlowService;
+
     private Registration packetInRegistration;
     private ListenerRegistration<DataTreeChangeListener> dataTreeChangeListenerRegistration;
 
@@ -97,10 +107,12 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
     public BloomflowProvider(final DataBroker dataBroker,
             final NotificationProviderService notificationService,
-            final PacketProcessingService packetProcessingService) {
+            final PacketProcessingService packetProcessingService,
+            final SalFlowService salFlowService) {
         this.dataBroker = dataBroker;
         this.notificationService = notificationService;
         this.packetProcessingService = packetProcessingService;
+        this.salFlowService = salFlowService;
     }
 
     /**
@@ -188,14 +200,22 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
             InstanceIdentifier<Flow> flowPath = tablePath.child(Flow.class, flowKey);
 
             short tableId = tablePath.firstKeyOf(Table.class, TableKey.class).getId();
-            short igmp_protocol = 2;
+            short igmp_protocol = 0x2;
 
             // Install flow to forward all IGMP packets to controller
             FlowBuilder allToCtrlFlow = new FlowBuilder().setTableId(tableId).setFlowName("allPacketsToCtrl").setId(flowId)
                     .setKey(new FlowKey(flowId));
 
             MatchBuilder matchBuilder = new MatchBuilder();
+
+            EthernetMatchBuilder ethMatchBuilder = new EthernetMatchBuilder();
+            EthernetTypeBuilder ethTypeBuilder = new EthernetTypeBuilder();
+            EtherType ethType = new EtherType(0x0800L);
+            ethMatchBuilder.setEthernetType(ethTypeBuilder.setType(ethType).build());
+            matchBuilder.setEthernetMatch(ethMatchBuilder.build());
+
             IpMatchBuilder ipMatchBuilder = new IpMatchBuilder();
+            ipMatchBuilder.setIpProto(IpVersion.Ipv4);
             ipMatchBuilder.setIpProtocol(igmp_protocol);
             matchBuilder.setIpMatch(ipMatchBuilder.build());
 
@@ -238,6 +258,22 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
                 .setIdleTimeout(0)
                 .setFlags(new FlowModFlags(false, false, false, false, false));
 
+            /*
+            // SalFlowService Approach
+            // =======================
+            Flow flowToInstall = allToCtrlFlow.build();
+            AddFlowInputBuilder builder = new AddFlowInputBuilder(flowToInstall);
+            InstanceIdentifier<Node> nodeInstanceId = flowPath.<Node>firstIdentifierOf(Node.class);
+            InstanceIdentifier<Table> tableInstanceId = flowPath.<Table>firstIdentifierOf(Table.class);
+            builder.setNode(new NodeRef(nodeInstanceId));
+            builder.setFlowRef(new FlowRef(flowPath));
+            builder.setFlowTable(new FlowTableRef(tableInstanceId));
+            builder.setTransactionUri(new Uri(flowToInstall.getId().getValue()));
+            salFlowService.addFlow(builder.build());
+            */
+
+            // DataBroker Approach
+            // ===================
             ReadWriteTransaction addFlowTransaction = dataBroker.newReadWriteTransaction();
             addFlowTransaction.put(LogicalDatastoreType.CONFIGURATION, flowPath, allToCtrlFlow.build(), true);
             addFlowTransaction.submit();

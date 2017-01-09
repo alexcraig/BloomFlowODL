@@ -21,12 +21,16 @@ and is available at http://www.eclipse.org/legal/epl-v10.html
   <odl:rpc-service id="packetProcessingService"
                    interface="org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.PacketProcessingService" />
 
+  <odl:rpc-service id="salFlowService"
+    interface="org.opendaylight.yang.gen.v1.urn.opendaylight.flow.service.rev130819.SalFlowService" />
+
   <bean id="provider"
     class="org.carleton.bbnlab.bloomflow.impl.BloomflowProvider"
     init-method="init" destroy-method="close">
     <argument ref="dataBroker" />
     <argument ref="notificationService" />
     <argument ref="packetProcessingService" />
+    <argument ref="salFlowService" />
   </bean>
 
 </blueprint>
