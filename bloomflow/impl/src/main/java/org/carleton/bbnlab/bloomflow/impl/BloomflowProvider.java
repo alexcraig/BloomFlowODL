@@ -10,7 +10,9 @@ package org.carleton.bbnlab.bloomflow.impl;
 import java.util.Collection;
 import java.util.Set;
 import java.util.HashSet;
+import java.net.InetAddress;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
@@ -77,6 +79,7 @@ import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026
 import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.PacketProcessingService;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.PacketProcessingListener;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.PacketReceived;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.RawPacket;
 
 import org.opendaylight.openflowplugin.api.OFConstants;
 
@@ -91,7 +94,6 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
     private final DataBroker dataBroker;
     private final NotificationProviderService notificationService;
     private final PacketProcessingService packetProcessingService;
-    private final SalFlowService salFlowService;
 
     private Registration packetInRegistration;
     private ListenerRegistration<DataTreeChangeListener> dataTreeChangeListenerRegistration;
@@ -107,19 +109,17 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
     public BloomflowProvider(final DataBroker dataBroker,
             final NotificationProviderService notificationService,
-            final PacketProcessingService packetProcessingService,
-            final SalFlowService salFlowService) {
+            final PacketProcessingService packetProcessingService) {
         this.dataBroker = dataBroker;
         this.notificationService = notificationService;
         this.packetProcessingService = packetProcessingService;
-        this.salFlowService = salFlowService;
     }
 
     /**
      * Method called when the blueprint container is created.
      */
     public void init() {
-        LOG.info("init() - Called");
+        LOG.debug("init() - Called");
         this.observedNodes = new HashSet<>();
 
         // this.notificationService.registerNotificationListener(this); // Deprecated method
@@ -134,14 +134,14 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
         this.dataTreeChangeListenerRegistration = this.dataBroker.registerDataTreeChangeListener(dataTreeIdentifier, this);
         LOG.info("init() - Registered as DataTreeChangeListener");
 
-        LOG.info("init() - Returning");
+        LOG.debug("init() - Returning");
     }
 
     /**
      * Method called when the blueprint container is destroyed.
      */
     public void close() {
-        LOG.info("close() - Called");
+        LOG.debug("close() - Called");
 
         try {
             packetInRegistration.close();
@@ -156,12 +156,33 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
             LOG.debug("close() - Failed to close dataTreeChangeListenerRegistration..", e);
         }
 
-        LOG.info("close() - Returning");
+        LOG.debug("close() - Returning");
     }
 
     @Override
     public void onPacketReceived(PacketReceived notification) {
-        LOG.info("onPacketReceived() - Called");
+        LOG.debug("onPacketReceived() - Called");
+        byte[] payload = notification.getPayload();
+
+        // Decode the received packet into Ethernet/IP
+       char ethType = PacketUtils.getEtherType(payload);
+       if (ethType == PacketUtils.ETHERTYPE_IPV4) {
+           LOG.info("onPacketReceived() - Got IPv4 Packet");
+           LOG.info("onPacketReceived() - " + PacketUtils.getSrcIpStr(payload) + " -> " + PacketUtils.getDstIpStr(payload));
+       } else if (ethType == PacketUtils.ETHERTYPE_IPV4_W_VLAN) {
+           LOG.info("onPacketReceived() - Got 802.1q VLAN tagged frame");
+       } else if (ethType == PacketUtils.ETHERTYPE_ARP) {
+           LOG.info("onPacketReceived() - Got ARP frame");
+       } else if (ethType == PacketUtils.ETHERTYPE_LLDP) {
+           LOG.info("onPacketReceived() - Got LLDP frame");
+       } else {
+           LOG.info("onPacketReceived() - Got packet with unknown ethType: " + String.valueOf(ethType));
+           String ethTypeHex = "0x";
+           for (byte b : Arrays.copyOfRange(payload, 0, 26)) {
+               ethTypeHex = ethTypeHex + String.format("%02x", b) + " ";
+           }
+           LOG.info("onPacketReceived() - payloadbytes: " + ethTypeHex);
+       }
     }
 
     @Override
@@ -185,7 +206,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
     }
 
     public synchronized void onSwitchAppeared(InstanceIdentifier<Table> appearedTablePath) {
-        LOG.info("onSwitchAppeared() - Called");
+        LOG.debug("onSwitchAppeared() - Called");
 
         int priority = 0;
         tablePath = appearedTablePath;
@@ -257,20 +278,6 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
                 .setHardTimeout(0)
                 .setIdleTimeout(0)
                 .setFlags(new FlowModFlags(false, false, false, false, false));
-
-            /*
-            // SalFlowService Approach
-            // =======================
-            Flow flowToInstall = allToCtrlFlow.build();
-            AddFlowInputBuilder builder = new AddFlowInputBuilder(flowToInstall);
-            InstanceIdentifier<Node> nodeInstanceId = flowPath.<Node>firstIdentifierOf(Node.class);
-            InstanceIdentifier<Table> tableInstanceId = flowPath.<Table>firstIdentifierOf(Table.class);
-            builder.setNode(new NodeRef(nodeInstanceId));
-            builder.setFlowRef(new FlowRef(flowPath));
-            builder.setFlowTable(new FlowTableRef(tableInstanceId));
-            builder.setTransactionUri(new Uri(flowToInstall.getId().getValue()));
-            salFlowService.addFlow(builder.build());
-            */
 
             // DataBroker Approach
             // ===================
