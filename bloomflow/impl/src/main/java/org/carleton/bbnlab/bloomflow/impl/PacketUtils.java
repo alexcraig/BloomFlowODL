@@ -8,6 +8,7 @@
 package org.carleton.bbnlab.bloomflow.impl;
 
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,15 +20,20 @@ import org.slf4j.LoggerFactory;
 public class PacketUtils {
     private static final Logger LOG = LoggerFactory.getLogger(PacketUtils.class);
 
-    private final static int PACKET_OFFSET_ETHERTYPE = 12;
-    private final static int PACKET_OFFSET_IP = 14;
-    private final static int PACKET_OFFSET_IP_SRC = PACKET_OFFSET_IP+12;
-    private final static int PACKET_OFFSET_IP_DST = PACKET_OFFSET_IP+16;
-
     public static final int ETHERTYPE_IPV4 = 0x0800;
     public static final int ETHERTYPE_IPV4_W_VLAN = 0x8100;
     public static final int ETHERTYPE_ARP = 0x0806;
     public static final int ETHERTYPE_LLDP = 0x88CC;
+
+    public static final int IP_PROTO_IGMP = 0x02;
+
+    // Note: IP offset constants assume no VLAN tag
+    private final static int PACKET_OFFSET_ETHERTYPE = 12;
+    private final static int PACKET_OFFSET_IP = 14;
+    private final static int PACKET_OFFSET_IP_SRC = PACKET_OFFSET_IP + 12;
+    private final static int PACKET_OFFSET_IP_DST = PACKET_OFFSET_IP + 16;
+    private final static int PACKET_OFFSET_IP_PROTO = PACKET_OFFSET_IP + 9;
+
 
     private PacketUtils() {
         // Disable instantiation of this class
@@ -40,6 +46,18 @@ public class PacketUtils {
 
     public static byte[] getEtherTypeBytes(final byte[] rawPacket) {
         return Arrays.copyOfRange(rawPacket, PACKET_OFFSET_ETHERTYPE, PACKET_OFFSET_ETHERTYPE+2);
+    }
+
+    public static byte getIpVersion(final byte[] rawPacket)
+    {
+        final byte[] ipVersionBytes = Arrays.copyOfRange(rawPacket, PACKET_OFFSET_IP, PACKET_OFFSET_IP + 1);
+        return (byte)(ipVersionBytes[0] >> 4);
+    }
+
+    public static byte getIpProtocol(final byte[] rawPacket)
+    {
+        final byte[] ipProtoBytes = Arrays.copyOfRange(rawPacket, PACKET_OFFSET_IP_PROTO, PACKET_OFFSET_IP_PROTO + 1);
+        return ipProtoBytes[0];
     }
 
     public static String getSrcIpStr(final byte[] rawPacket) {
@@ -84,6 +102,10 @@ public class PacketUtils {
         }
 
         return val;
+    }
+
+    public static int packInt(byte[] bytes) {
+        return ByteBuffer.wrap(bytes).getInt();
     }
 
 }

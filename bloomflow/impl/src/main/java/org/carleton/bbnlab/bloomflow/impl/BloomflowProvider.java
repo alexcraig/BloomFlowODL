@@ -168,7 +168,17 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
        char ethType = PacketUtils.getEtherType(payload);
        if (ethType == PacketUtils.ETHERTYPE_IPV4) {
            LOG.info("onPacketReceived() - Got IPv4 Packet");
+           // Ensure IP version is 4 (already specified by ethertype, but should be consistent with IP header)
+           byte ipVersion = PacketUtils.getIpVersion(payload);
+           if (ipVersion != 4) {
+               LOG.warn("onPacketReceived() - IPv4 Packet specified wrong version in IPv4 header: " + ipVersion);
+           }
            LOG.info("onPacketReceived() - " + PacketUtils.getSrcIpStr(payload) + " -> " + PacketUtils.getDstIpStr(payload));
+           // Check IP protocol field to see if this is an IGMP packet
+           byte ipProto = PacketUtils.getIpProtocol(payload);
+           if (ipProto == PacketUtils.IP_PROTO_IGMP) {
+               LOG.info("onPacketReceived() - IPv4 Packet contains IGMP payload");
+           }
        } else if (ethType == PacketUtils.ETHERTYPE_IPV4_W_VLAN) {
            LOG.info("onPacketReceived() - Got 802.1q VLAN tagged frame");
        } else if (ethType == PacketUtils.ETHERTYPE_ARP) {
