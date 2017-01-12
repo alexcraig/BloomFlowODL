@@ -20,6 +20,10 @@ import org.slf4j.LoggerFactory;
 public class PacketUtils {
     private static final Logger LOG = LoggerFactory.getLogger(PacketUtils.class);
 
+    public static final int ETHERNET_HEADER_LEN = 14;    // Assumes no VLAN tag
+    public static final int ETHERNET_CHECKSUM_LEN = 4;
+    public static final int IPV4_HEADER_LEN = 20; // Assumes no content in options field
+
     public static final int ETHERTYPE_IPV4 = 0x0800;
     public static final int ETHERTYPE_IPV4_W_VLAN = 0x8100;
     public static final int ETHERTYPE_ARP = 0x0806;
@@ -52,6 +56,12 @@ public class PacketUtils {
     {
         final byte[] ipVersionBytes = Arrays.copyOfRange(rawPacket, PACKET_OFFSET_IP, PACKET_OFFSET_IP + 1);
         return (byte)(ipVersionBytes[0] >> 4);
+    }
+
+    public static int getIpHeaderLengthBytes(final byte[] rawPacket)
+    {
+        final byte[] ipVersionBytes = Arrays.copyOfRange(rawPacket, PACKET_OFFSET_IP, PACKET_OFFSET_IP + 1);
+        return (ipVersionBytes[0] & 0x0F) * 4;
     }
 
     public static byte getIpProtocol(final byte[] rawPacket)

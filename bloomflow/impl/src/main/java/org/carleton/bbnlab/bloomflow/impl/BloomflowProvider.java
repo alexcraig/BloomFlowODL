@@ -165,34 +165,58 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
         byte[] payload = notification.getPayload();
 
         // Decode the received packet into Ethernet/IP
-       char ethType = PacketUtils.getEtherType(payload);
-       if (ethType == PacketUtils.ETHERTYPE_IPV4) {
-           LOG.info("onPacketReceived() - Got IPv4 Packet");
-           // Ensure IP version is 4 (already specified by ethertype, but should be consistent with IP header)
-           byte ipVersion = PacketUtils.getIpVersion(payload);
-           if (ipVersion != 4) {
-               LOG.warn("onPacketReceived() - IPv4 Packet specified wrong version in IPv4 header: " + ipVersion);
-           }
-           LOG.info("onPacketReceived() - " + PacketUtils.getSrcIpStr(payload) + " -> " + PacketUtils.getDstIpStr(payload));
-           // Check IP protocol field to see if this is an IGMP packet
-           byte ipProto = PacketUtils.getIpProtocol(payload);
-           if (ipProto == PacketUtils.IP_PROTO_IGMP) {
-               LOG.info("onPacketReceived() - IPv4 Packet contains IGMP payload");
-           }
-       } else if (ethType == PacketUtils.ETHERTYPE_IPV4_W_VLAN) {
-           LOG.info("onPacketReceived() - Got 802.1q VLAN tagged frame");
-       } else if (ethType == PacketUtils.ETHERTYPE_ARP) {
-           LOG.info("onPacketReceived() - Got ARP frame");
-       } else if (ethType == PacketUtils.ETHERTYPE_LLDP) {
-           LOG.info("onPacketReceived() - Got LLDP frame");
-       } else {
-           LOG.info("onPacketReceived() - Got packet with unknown ethType: " + String.valueOf(ethType));
-           String ethTypeHex = "0x";
-           for (byte b : Arrays.copyOfRange(payload, 0, 26)) {
-               ethTypeHex = ethTypeHex + String.format("%02x", b) + " ";
-           }
-           LOG.info("onPacketReceived() - payloadbytes: " + ethTypeHex);
-       }
+        char ethType = PacketUtils.getEtherType(payload);
+        if (ethType == PacketUtils.ETHERTYPE_IPV4) {
+            LOG.info("onPacketReceived() - Got IPv4 Packet");
+                // Ensure IP version is 4 (already specified by ethertype, but should be consistent with IP header)
+            byte ipVersion = PacketUtils.getIpVersion(payload);
+            int ipHeaderLenBytes = PacketUtils.getIpHeaderLengthBytes(payload);
+            if (ipVersion != 4) {
+                LOG.warn("onPacketReceived() - IPv4 Packet specified wrong version in IPv4 header: " + ipVersion);
+            }
+            LOG.info("onPacketReceived() - " + PacketUtils.getSrcIpStr(payload) + " -> "
+                    + PacketUtils.getDstIpStr(payload));
+            // Check IP protocol field to see if this is an IGMP packet
+            byte ipProto = PacketUtils.getIpProtocol(payload);
+            if (ipProto == PacketUtils.IP_PROTO_IGMP) {
+                LOG.info("onPacketReceived() - IPv4 Packet contains IGMP payload");
+                IgmpPacket receivedIgmp = new IgmpPacket(
+                        Arrays.copyOfRange(payload,
+                                PacketUtils.ETHERNET_HEADER_LEN + ipHeaderLenBytes,
+                                payload.length));
+                LOG.info("onPacketReceived() - Decoded IGMP message:\n" + receivedIgmp.debugStr());
+                if (receivedIgmp.getMessageType() == IgmpPacket.MessageType.UNKNOWN_TYPE) {
+                    String headerHex = "0x ";
+                    for (byte b : Arrays.copyOfRange(payload,
+                            0,
+                            PacketUtils.ETHERNET_HEADER_LEN + ipHeaderLenBytes)) {
+                        headerHex = headerHex + String.format("%02x", b) + " ";
+                    }
+                    LOG.info("onPacketReceived() - eth + ip header bytes:\n" + headerHex);
+
+                    String igmpHex = "0x ";
+                    for (byte b : Arrays.copyOfRange(payload,
+                            PacketUtils.ETHERNET_HEADER_LEN + ipHeaderLenBytes,
+                            payload.length)) {
+                        igmpHex = igmpHex + String.format("%02x", b) + " ";
+                    }
+                    LOG.info("onPacketReceived() - igmp bytes:\n" + igmpHex);
+                }
+            }
+        } else if (ethType == PacketUtils.ETHERTYPE_IPV4_W_VLAN) {
+            LOG.debug("onPacketReceived() - Got 802.1q VLAN tagged frame");
+        } else if (ethType == PacketUtils.ETHERTYPE_ARP) {
+            LOG.debug("onPacketReceived() - Got ARP frame");
+        } else if (ethType == PacketUtils.ETHERTYPE_LLDP) {
+            LOG.debug("onPacketReceived() - Got LLDP frame");
+        } else {
+            LOG.info("onPacketReceived() - Got packet with unknown ethType: " + String.valueOf(ethType));
+            String ethTypeHex = "0x ";
+            for (byte b : Arrays.copyOfRange(payload, 0, 26)) {
+                ethTypeHex = ethTypeHex + String.format("%02x", b) + " ";
+            }
+            LOG.info("onPacketReceived() - payload bytes:\n" + ethTypeHex);
+        }
     }
 
     @Override
@@ -217,8 +241,10 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
     public synchronized void onSwitchAppeared(InstanceIdentifier<Table> appearedTablePath) {
         LOG.debug("onSwitchAppeared() - Called");
+        final short igmpProtocol = 0x2;
 
         int priority = 0;
+
         tablePath = appearedTablePath;
         nodePath = tablePath.firstIdentifierOf(Node.class);
         nodeId = nodePath.firstKeyOf(Node.class, NodeKey.class).getId();
@@ -231,10 +257,10 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
             InstanceIdentifier<Flow> flowPath = tablePath.child(Flow.class, flowKey);
 
             short tableId = tablePath.firstKeyOf(Table.class, TableKey.class).getId();
-            short igmp_protocol = 0x2;
 
             // Install flow to forward all IGMP packets to controller
-            FlowBuilder allToCtrlFlow = new FlowBuilder().setTableId(tableId).setFlowName("allPacketsToCtrl").setId(flowId)
+            FlowBuilder allToCtrlFlow = new FlowBuilder().setTableId(tableId).setFlowName(
+                    "allPacketsToCtrl").setId(flowId)
                     .setKey(new FlowKey(flowId));
 
             MatchBuilder matchBuilder = new MatchBuilder();
@@ -247,7 +273,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
             IpMatchBuilder ipMatchBuilder = new IpMatchBuilder();
             ipMatchBuilder.setIpProto(IpVersion.Ipv4);
-            ipMatchBuilder.setIpProtocol(igmp_protocol);
+            ipMatchBuilder.setIpProtocol(igmpProtocol);
             matchBuilder.setIpMatch(ipMatchBuilder.build());
 
             // Create output action -> send to controller
