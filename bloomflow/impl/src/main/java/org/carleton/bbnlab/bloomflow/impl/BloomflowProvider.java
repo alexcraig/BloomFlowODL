@@ -222,6 +222,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
                 for (IgmpSwitchManager managedSwitch : this.managedSwitches) {
                     if (managedSwitch.getNodeId().equals(nodeId)) {
                         managedSwitch.processIgmpPacket(receivedIgmp, notification, ipHeaderLenBytes);
+                        LOG.info(managedSwitch.debugStr());
                         foundIngressSwitch = true;
                         break;
                     }

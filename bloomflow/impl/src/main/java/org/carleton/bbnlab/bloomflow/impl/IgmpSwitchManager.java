@@ -11,6 +11,7 @@ import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -72,6 +73,17 @@ public class IgmpSwitchManager {
         multicastRecords = new HashMap<NodeConnectorId, Map<InetAddress, MulticastMembershipRecord>>();
     }
 
+    public String debugStr() {
+        String returnStr = "\nIGMP Switch Manager Debug State:\nNode Id: " + nodeId.getValue() + "\n";
+        for (NodeConnectorId port : multicastRecords.keySet()) {
+            returnStr += "Membership Records for Port: " + port.getValue() + "\n";
+            for (InetAddress mcastAddr : multicastRecords.get(port).keySet()) {
+                returnStr += multicastRecords.get(port).get(mcastAddr).debugStr();
+            }
+        }
+        return returnStr;
+    }
+
     public void processIgmpPacket(IgmpPacket igmpPacket, PacketReceived packetIn, int ipHeaderLenBytes) {
         byte[] payload = packetIn.getPayload();
         NodeConnectorId ingressPort = packetIn.getIngress().getValue().firstIdentifierOf(NodeConnector.class).firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId();
@@ -100,12 +112,12 @@ public class IgmpSwitchManager {
                 for (IgmpGroupRecord record : igmpPacket.getGroupRecords()) {
                     if (record.getRecordType() == IgmpGroupRecord.RecordType.MODE_IS_INCLUDE
                             || record.getRecordType() == IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE) {
-                        this.processCurrentStateRecord(record, packetIn);
+                        this.processCurrentStateRecord(record, packetIn, ingressPort);
                     } else if (record.getRecordType() == IgmpGroupRecord.RecordType.CHANGE_TO_INCLUDE_MODE
                             || record.getRecordType() == IgmpGroupRecord.RecordType.CHANGE_TO_EXCLUDE_MODE
                             || record.getRecordType() == IgmpGroupRecord.RecordType.ALLOW_NEW_SOURCES
                             || record.getRecordType() == IgmpGroupRecord.RecordType.BLOCK_OLD_SOURCES) {
-                        this.processStateChangeRecord(record, packetIn);
+                        this.processStateChangeRecord(record, packetIn, ingressPort);
                     }
                 }
             } else if (igmpPacket.getMessageType() == IgmpPacket.MessageType.MEMBERSHIP_QUERY_V3
@@ -163,27 +175,26 @@ public class IgmpSwitchManager {
      * the same list as the X set when in EXCLUDE mode
      *
      */
-    public void processCurrentStateRecord(IgmpGroupRecord packetRecord, PacketReceived packetIn) {
+    public void processCurrentStateRecord(IgmpGroupRecord packetRecord, PacketReceived packetIn,
+            NodeConnectorId ingressPort) {
         LOG.info("processCurrentStateRecord() - Called");
         MulticastMembershipRecord switchRecord = this.createMcastMembershipRecord(packetRecord, packetIn,
                 this.provider.igmpGroupMembershipInterval);
-        List<MulticastMembershipRecord.SourceRecord> newXSourceRecords =
-                new ArrayList<MulticastMembershipRecord.SourceRecord>();
-        List<MulticastMembershipRecord.SourceRecord> newYSourceRecords =
-                new ArrayList<MulticastMembershipRecord.SourceRecord>();
+        List<SourceRecord> newXSourceRecords = new ArrayList<SourceRecord>();
+        List<SourceRecord> newYSourceRecords = new ArrayList<SourceRecord>();
         Set<InetAddress> recordAddresses = packetRecord.getSourceAddressSet();
 
         if (switchRecord.getFilterMode() == IgmpGroupRecord.RecordType.MODE_IS_INCLUDE) {
             if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.MODE_IS_INCLUDE) {
-
+                // ==== Switch State: MODE_IS_INCLUDE, Message: MODE_IS_INCLUDE ====
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE) {
-
+                // ==== Switch State: MODE_IS_INCLUDE, Message: MODE_IS_EXCLUDE ====
             }
         } else if (switchRecord.getFilterMode() == IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE) {
             if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.MODE_IS_INCLUDE) {
-
+                // ==== Switch State: MODE_IS_EXCLUDE, Message: MODE_IS_INCLUDE ====
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE) {
-
+                // ==== Switch State: MODE_IS_EXCLUDE, Message: MODE_IS_EXCLUDE ====
             }
         }
     }
@@ -226,35 +237,148 @@ public class IgmpSwitchManager {
      * Note: When the group is in INCLUDE mode, the set of addresses is stored in the same list as the X set when
      * in EXCLUDE mode
      */
-    public void processStateChangeRecord(IgmpGroupRecord packetRecord, PacketReceived packetIn) {
+    public void processStateChangeRecord(IgmpGroupRecord packetRecord, PacketReceived packetIn,
+            NodeConnectorId ingressPort) {
         LOG.info("processStateChangeRecord() - Called");
         MulticastMembershipRecord switchRecord = this.createMcastMembershipRecord(packetRecord, packetIn,
                 this.provider.igmpGroupMembershipInterval);
-        List<MulticastMembershipRecord.SourceRecord> newXSourceRecords =
-                new ArrayList<MulticastMembershipRecord.SourceRecord>();
-        List<MulticastMembershipRecord.SourceRecord> newYSourceRecords =
-                new ArrayList<MulticastMembershipRecord.SourceRecord>();
+        List<SourceRecord> newXSourceRecords = new ArrayList<SourceRecord>();
+        List<SourceRecord> newYSourceRecords = new ArrayList<SourceRecord>();
         Set<InetAddress> recordAddresses = packetRecord.getSourceAddressSet();
+        Set<InetAddress> newXSet = new HashSet<InetAddress>();
+        Set<InetAddress> newYSet = new HashSet<InetAddress>();
 
         if (switchRecord.getFilterMode() == IgmpGroupRecord.RecordType.MODE_IS_INCLUDE) {
             if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.ALLOW_NEW_SOURCES) {
-
+                // ==== Switch State: MODE_IS_INCLUDE, Message: ALLOW_NEW_SOURCES ====
+                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                newXSet.addAll(recordAddresses);
+                for (InetAddress addr : newXSet) {
+                    if (recordAddresses.contains(addr)) {
+                        newXSourceRecords.add(new SourceRecord(addr, this.provider.igmpGroupMembershipInterval));
+                    } else {
+                        newXSourceRecords.add(new SourceRecord(addr, switchRecord.getCurrSourceTimer(addr)));
+                    }
+                }
+                switchRecord.setXSourceRecords(newXSourceRecords);
+                switchRecord.setYSourceRecords(newYSourceRecords);
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.BLOCK_OLD_SOURCES) {
-
+                // ==== Switch State: MODE_IS_INCLUDE, Message: BLOCK_OLD_SOURCES ====
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.CHANGE_TO_EXCLUDE_MODE) {
+                // ==== Switch State: MODE_IS_INCLUDE, Message: CHANGE_TO_EXCLUDE_MODE ====
+                switchRecord.setFilterMode(IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE);
+                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                newXSet.retainAll(recordAddresses);
+                newYSet = new HashSet<InetAddress>(recordAddresses);
+                newYSet.removeAll(switchRecord.getXAddressSet());
+                for (InetAddress addr : newXSet) {
+                    newXSourceRecords.add(new SourceRecord(addr, switchRecord.getCurrSourceTimer(addr)));
+                }
+                for (InetAddress addr : newYSet) {
+                    newYSourceRecords.add(new SourceRecord(addr, 0));
+                }
+                switchRecord.setXSourceRecords(newXSourceRecords);
+                switchRecord.setYSourceRecords(newYSourceRecords);
+                switchRecord.setGroupTimer(this.provider.igmpGroupMembershipInterval);
+
+                // TODO: Send: Q(G, A*B)
+                // self.send_group_and_source_specific_query(event.port, igmp_group_record.multicast_address, router_group_record, new_x_set)
 
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.CHANGE_TO_INCLUDE_MODE) {
+                // ==== Switch State: MODE_IS_INCLUDE, Message: CHANGE_TO_INCLUDE_MODE ====
+                switchRecord.setFilterMode(IgmpGroupRecord.RecordType.MODE_IS_INCLUDE);
+                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                newXSet.addAll(recordAddresses);
 
+                for (InetAddress addr : newXSet) {
+                    if (recordAddresses.contains(addr)) {
+                        newXSourceRecords.add(new SourceRecord(addr, this.provider.igmpGroupMembershipInterval));
+                    } else {
+                        newXSourceRecords.add(new SourceRecord(addr, switchRecord.getCurrSourceTimer(addr)));
+                    }
+                }
+                switchRecord.setXSourceRecords(newXSourceRecords);
+                switchRecord.setYSourceRecords(newYSourceRecords);
+
+                // TODO: Send Q(G,A-B)
+                // query_addr_set = router_group_record.get_x_addr_set() - igmp_record_addresses
+                // self.send_group_and_source_specific_query(event.port, igmp_group_record.multicast_address, router_group_record, query_addr_set)
             }
         } else if (switchRecord.getFilterMode() == IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE) {
             if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.ALLOW_NEW_SOURCES) {
-
+                // ==== Switch State: MODE_IS_EXCLUDE, Message: ALLOW_NEW_SOURCES ====
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.BLOCK_OLD_SOURCES) {
-
+                // ==== Switch State: MODE_IS_EXCLUDE, Message: BLOCK_OLD_SOURCES ====
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.CHANGE_TO_EXCLUDE_MODE) {
+                // ==== Switch State: MODE_IS_EXCLUDE, Message: CHANGE_TO_EXCLUDE_MODE ====
+                switchRecord.setFilterMode(IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE);
+                newXSet = new HashSet(recordAddresses);
+                newXSet.removeAll(switchRecord.getYAddressSet());
+                newYSet = new HashSet(switchRecord.getYAddressSet());
+                newYSet.retainAll(recordAddresses);
+
+                HashSet<InetAddress> groupTimerSet = new HashSet<InetAddress>(recordAddresses);
+                groupTimerSet.removeAll(switchRecord.getXAddressSet());
+                groupTimerSet.removeAll(switchRecord.getYAddressSet());
+
+                for (InetAddress addr : newXSet) {
+                    if (groupTimerSet.contains(addr)) {
+                        newXSourceRecords.add(new SourceRecord(addr, switchRecord.getGroupTimer()));
+                    } else {
+                        newXSourceRecords.add(new SourceRecord(addr, switchRecord.getCurrSourceTimer(addr)));
+                    }
+                }
+                for (InetAddress addr : newYSet) {
+                    newYSourceRecords.add(new SourceRecord(addr, switchRecord.getCurrSourceTimer(addr)));
+                }
+                switchRecord.setGroupTimer(this.provider.igmpGroupMembershipInterval);
+                switchRecord.setXSourceRecords(newXSourceRecords);
+                switchRecord.setYSourceRecords(newYSourceRecords);
+
+                // TODO: self.send_group_and_source_specific_query(event.port, igmp_group_record.multicast_address, router_group_record, new_x_set)
 
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.CHANGE_TO_INCLUDE_MODE) {
+                // ==== Switch State: MODE_IS_EXCLUDE, Message: CHANGE_TO_INCLUDE_MODE ====
+                switchRecord.setFilterMode(IgmpGroupRecord.RecordType.MODE_IS_INCLUDE);
 
+                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                newXSet.addAll(recordAddresses);
+                newYSet = new HashSet<InetAddress>(switchRecord.getYAddressSet());
+                newYSet.removeAll(recordAddresses);
+
+                for (InetAddress addr : newXSet) {
+                    if (recordAddresses.contains(addr)) {
+                        newXSourceRecords.add(new SourceRecord(addr, this.provider.igmpGroupMembershipInterval));
+                    } else {
+                        newXSourceRecords.add(new SourceRecord(addr, switchRecord.getCurrSourceTimer(addr)));
+                    }
+                }
+                for (InetAddress addr : newYSet) {
+                    newYSourceRecords.add(new SourceRecord(addr, 0));
+                }
+                switchRecord.setXSourceRecords(newXSourceRecords);
+                switchRecord.setYSourceRecords(newYSourceRecords);
+
+                // TODO: Send Q(G, X-A)
+                // self.send_group_and_source_specific_query(event.port, igmp_group_record.multicast_address, router_group_record, query_addr_set)
+                // TODO: # Send Q(G)
+                // self.send_group_specific_query(event.port, igmp_group_record.multicast_address, router_group_record)
+            }
+        }
+
+        if (switchRecord.getFilterMode() == IgmpGroupRecord.RecordType.MODE_IS_INCLUDE && newXSourceRecords.isEmpty()) {
+            this.removeGroupRecord(ingressPort, packetRecord.getMcastAddress());
+        }
+    }
+
+    public void removeGroupRecord(NodeConnectorId port, InetAddress mcastAddr) {
+        if (this.multicastRecords.get(port) != null) {
+            if (this.multicastRecords.get(port).get(mcastAddr) != null) {
+                this.multicastRecords.get(port).remove(mcastAddr);
+
+                if (this.multicastRecords.get(port).isEmpty()) {
+                    this.multicastRecords.remove(port);
+                }
             }
         }
     }

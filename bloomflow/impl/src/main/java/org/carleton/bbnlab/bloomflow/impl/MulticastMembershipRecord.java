@@ -17,8 +17,8 @@ import java.util.Set;
 /* Class representing the group record state maintained by an IGMPv3 multicast router
  *
  * Multicast routers implementing IGMPv3 keep state per group per attached network.  This group state consists of a
- * filter-mode, a list of sources, and various timers.  For each attached network running IGMP, a multicast router
- * records the desired reception state for that network.  That state conceptually consists of a set of records of the
+ * filter-mode, a list of sources, and various timers. For each attached network running IGMP, a multicast router
+ * records the desired reception state for that network. That state conceptually consists of a set of records of the
  * form:
  *
  * (multicast address, group timer, filter-mode, (source records))
@@ -28,44 +28,6 @@ import java.util.Set;
  * (source address, source timer)
  */
 public class MulticastMembershipRecord {
-    public class SourceRecord {
-        private InetAddress sourceAddress;
-        private double sourceTimer;
-
-        public SourceRecord(InetAddress sourceAddress, double sourceTimer)  {
-            this.sourceAddress = sourceAddress;
-            this.sourceTimer = sourceTimer;
-        }
-
-        /**
-         * @return the sourceAddress
-         */
-        public InetAddress getSourceAddress() {
-            return sourceAddress;
-        }
-
-        /**
-         * @param sourceAddress the sourceAddress to set
-         */
-        public void setSourceAddress(InetAddress sourceAddress) {
-            this.sourceAddress = sourceAddress;
-        }
-
-        /**
-         * @return the sourceTimer
-         */
-        public double getSourceTimer() {
-            return sourceTimer;
-        }
-
-        /**
-         * @param sourceTimer the sourceTimer to set
-         */
-        public void setSourceTimer(int sourceTimer) {
-            this.sourceTimer = sourceTimer;
-        }
-    }
-
     private InetAddress mcastAddress;
     private double groupTimer;
     private IgmpGroupRecord.RecordType filterMode;
@@ -78,6 +40,27 @@ public class MulticastMembershipRecord {
         filterMode = IgmpGroupRecord.RecordType.MODE_IS_INCLUDE;
         xSourceRecords = new ArrayList<SourceRecord>();
         ySourceRecords = new ArrayList<SourceRecord>();
+    }
+
+    public String debugStr() {
+        String returnStr = "\tMembership Record [" + mcastAddress + ", " + groupTimer + "]\n";
+        returnStr += "\tFilter Mode: " + filterMode + "\n";
+        if(!xSourceRecords.isEmpty()) {
+            returnStr += "\tX Source Records:\n";
+            for (SourceRecord record : xSourceRecords) {
+                returnStr += record.debugStr();
+            }
+        }
+        if(!ySourceRecords.isEmpty()) {
+            returnStr += "\tY Source Records:\n";
+            for (SourceRecord record : ySourceRecords) {
+                returnStr += record.debugStr();
+            }
+        }
+        if(xSourceRecords.isEmpty() && ySourceRecords.isEmpty()) {
+            returnStr += "\tNo Source Records\n";
+        }
+        return returnStr;
     }
 
     /**
@@ -130,7 +113,7 @@ public class MulticastMembershipRecord {
         Iterator<SourceRecord> itr = xSourceRecords.iterator();
         while(itr.hasNext()){
             SourceRecord xRecord = itr.next();
-            if (xRecord.sourceAddress.equals(ipAddress)) {
+            if (xRecord.getSourceAddress().equals(ipAddress)) {
                 itr.remove();
                 removed = true;
             }
@@ -139,7 +122,7 @@ public class MulticastMembershipRecord {
         itr = ySourceRecords.iterator();
         while(itr.hasNext()){
             SourceRecord yRecord = itr.next();
-            if (yRecord.sourceAddress.equals(ipAddress)) {
+            if (yRecord.getSourceAddress().equals(ipAddress)) {
                 itr.remove();
                 removed = true;
             }
@@ -172,7 +155,7 @@ public class MulticastMembershipRecord {
     /**
      * @param groupTimer the groupTimer to set
      */
-    public void setGroupTimer(int groupTimer) {
+    public void setGroupTimer(double groupTimer) {
         this.groupTimer = groupTimer;
     }
 
@@ -188,5 +171,33 @@ public class MulticastMembershipRecord {
      */
     public void setFilterMode(IgmpGroupRecord.RecordType filterMode) {
         this.filterMode = filterMode;
+    }
+
+    /**
+     * @return the xSourceRecords
+     */
+    public List<SourceRecord> getXSourceRecords() {
+        return xSourceRecords;
+    }
+
+    /**
+     * @param xSourceRecords the xSourceRecords to set
+     */
+    public void setXSourceRecords(List<SourceRecord> xSourceRecords) {
+        this.xSourceRecords = xSourceRecords;
+    }
+
+    /**
+     * @return the ySourceRecords
+     */
+    public List<SourceRecord> getYSourceRecords() {
+        return ySourceRecords;
+    }
+
+    /**
+     * @param ySourceRecords the ySourceRecords to set
+     */
+    public void setYSourceRecords(List<SourceRecord> ySourceRecords) {
+        this.ySourceRecords = ySourceRecords;
     }
 }
