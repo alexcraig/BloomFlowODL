@@ -130,7 +130,7 @@ public class MulticastMembershipRecord {
         Iterator<SourceRecord> itr = xSourceRecords.iterator();
         while(itr.hasNext()){
             SourceRecord xRecord = itr.next();
-            if (xRecord.sourceAddress == ipAddress) {
+            if (xRecord.sourceAddress.equals(ipAddress)) {
                 itr.remove();
                 removed = true;
             }
@@ -139,7 +139,7 @@ public class MulticastMembershipRecord {
         itr = ySourceRecords.iterator();
         while(itr.hasNext()){
             SourceRecord yRecord = itr.next();
-            if (yRecord.sourceAddress == ipAddress) {
+            if (yRecord.sourceAddress.equals(ipAddress)) {
                 itr.remove();
                 removed = true;
             }

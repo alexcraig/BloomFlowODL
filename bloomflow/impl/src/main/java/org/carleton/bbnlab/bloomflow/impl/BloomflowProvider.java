@@ -28,6 +28,7 @@ import org.opendaylight.controller.sal.binding.api.NotificationProviderService;
 
 import org.opendaylight.yangtools.yang.binding.DataObject;
 import org.opendaylight.yangtools.yang.binding.InstanceIdentifier;
+import org.opendaylight.yangtools.yang.binding.InstanceIdentifier.PathArgument;
 import org.opendaylight.yangtools.concepts.Registration;
 import org.opendaylight.yangtools.concepts.ListenerRegistration;
 import org.opendaylight.yang.gen.v1.urn.ietf.params.xml.ns.yang.ietf.inet.types.rev130715.IpVersion;
@@ -38,6 +39,7 @@ import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.nodes.N
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.nodes.NodeKey;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.l2.types.rev130827.EtherType;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeId;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeConnectorId;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeConnectorRef;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeRef;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.node.NodeConnector;
@@ -107,6 +109,8 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
     private final AtomicLong flowIdInc = new AtomicLong();
     private final AtomicLong flowCookieInc = new AtomicLong(0x2a00000000000000L);
 
+    private List<IgmpSwitchManager> managedSwitches;
+
     public BloomflowProvider(final DataBroker dataBroker,
             final NotificationProviderService notificationService,
             final PacketProcessingService packetProcessingService) {
@@ -121,6 +125,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
     public void init() {
         LOG.debug("init() - Called");
         this.observedNodes = new HashSet<>();
+        this.managedSwitches = new ArrayList<IgmpSwitchManager>();
 
         // this.notificationService.registerNotificationListener(this); // Deprecated method
         packetInRegistration = notificationService.registerNotificationListener(this);
@@ -161,7 +166,9 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
     @Override
     public void onPacketReceived(PacketReceived notification) {
-        LOG.debug("onPacketReceived() - Called");
+        NodeId test = notification.getIngress().getValue().firstIdentifierOf(Node.class).firstKeyOf(Node.class, NodeKey.class).getId();
+        NodeConnectorId test2 = notification.getIngress().getValue().firstIdentifierOf(NodeConnector.class).firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId();
+        LOG.info("onPacketReceived() - Recieved PacketIn from (Node: " + test.getValue() + ", Port: " + test2.getValue() + ")");
         byte[] payload = notification.getPayload();
 
         // Decode the received packet into Ethernet/IP
@@ -219,6 +226,14 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
         }
     }
 
+    public FlowId getNextFlowId() {
+        return new FlowId(String.valueOf(flowIdInc.getAndIncrement()));
+    }
+
+    public DataBroker getDataBroker() {
+        return this.dataBroker;
+    }
+
     @Override
     public void onDataTreeChanged(@Nonnull Collection<DataTreeModification<Table>> modifications) {
         Short requiredTableId = 0;
@@ -241,88 +256,25 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
     public synchronized void onSwitchAppeared(InstanceIdentifier<Table> appearedTablePath) {
         LOG.debug("onSwitchAppeared() - Called");
-        final short igmpProtocol = 0x2;
-
-        int priority = 0;
 
         tablePath = appearedTablePath;
         nodePath = tablePath.firstIdentifierOf(Node.class);
         nodeId = nodePath.firstKeyOf(Node.class, NodeKey.class).getId();
 
-        if (!this.observedNodes.contains(nodeId)) {
-            LOG.info("onSwitchAppeared() - Observed nodeId: " + nodeId);
-
-            FlowId flowId = new FlowId(String.valueOf(flowIdInc.getAndIncrement()));
-            FlowKey flowKey = new FlowKey(flowId);
-            InstanceIdentifier<Flow> flowPath = tablePath.child(Flow.class, flowKey);
-
-            short tableId = tablePath.firstKeyOf(Table.class, TableKey.class).getId();
-
-            // Install flow to forward all IGMP packets to controller
-            FlowBuilder allToCtrlFlow = new FlowBuilder().setTableId(tableId).setFlowName(
-                    "allPacketsToCtrl").setId(flowId)
-                    .setKey(new FlowKey(flowId));
-
-            MatchBuilder matchBuilder = new MatchBuilder();
-
-            EthernetMatchBuilder ethMatchBuilder = new EthernetMatchBuilder();
-            EthernetTypeBuilder ethTypeBuilder = new EthernetTypeBuilder();
-            EtherType ethType = new EtherType(0x0800L);
-            ethMatchBuilder.setEthernetType(ethTypeBuilder.setType(ethType).build());
-            matchBuilder.setEthernetMatch(ethMatchBuilder.build());
-
-            IpMatchBuilder ipMatchBuilder = new IpMatchBuilder();
-            ipMatchBuilder.setIpProto(IpVersion.Ipv4);
-            ipMatchBuilder.setIpProtocol(igmpProtocol);
-            matchBuilder.setIpMatch(ipMatchBuilder.build());
-
-            // Create output action -> send to controller
-            OutputActionBuilder output = new OutputActionBuilder();
-            output.setMaxLength(Integer.valueOf(0xffff));
-            Uri controllerPort = new Uri(OutputPortValues.CONTROLLER.toString());
-            output.setOutputNodeConnector(controllerPort);
-
-            ActionBuilder ab = new ActionBuilder();
-            ab.setAction(new OutputActionCaseBuilder().setOutputAction(output.build()).build());
-            ab.setOrder(0);
-            ab.setKey(new ActionKey(0));
-
-            List<Action> actionList = new ArrayList<>();
-            actionList.add(ab.build());
-
-            // Create an Apply Action
-            ApplyActionsBuilder aab = new ApplyActionsBuilder();
-            aab.setAction(actionList);
-
-            // Wrap our Apply Action in an Instruction
-            InstructionBuilder ib = new InstructionBuilder();
-            ib.setInstruction(new ApplyActionsCaseBuilder().setApplyActions(aab.build()).build());
-            ib.setOrder(0);
-            ib.setKey(new InstructionKey(0));
-
-            // Put our Instruction in a list of Instructions
-            InstructionsBuilder isb = new InstructionsBuilder();
-            List<Instruction> instructions = new ArrayList<>();
-            instructions.add(ib.build());
-            isb.setInstruction(instructions);
-
-            allToCtrlFlow
-                .setMatch(matchBuilder.build())
-                .setInstructions(isb.build())
-                .setPriority(priority)
-                .setBufferId(OFConstants.OFP_NO_BUFFER)
-                .setHardTimeout(0)
-                .setIdleTimeout(0)
-                .setFlags(new FlowModFlags(false, false, false, false, false));
-
-            // DataBroker Approach
-            // ===================
-            ReadWriteTransaction addFlowTransaction = dataBroker.newReadWriteTransaction();
-            addFlowTransaction.put(LogicalDatastoreType.CONFIGURATION, flowPath, allToCtrlFlow.build(), true);
-            addFlowTransaction.submit();
-
-            LOG.info("onSwitchAppeared() - Created forward IGMP packets to controller flow");
+        boolean newSwitch = true;
+        for (IgmpSwitchManager sw : this.managedSwitches) {
+            if (sw.getNodeId().getValue().equals(nodeId.getValue())) {
+                newSwitch = false;
+                break;
+            }
         }
-        this.observedNodes.add(nodeId);
+
+        if (newSwitch) {
+            LOG.info("onSwitchAppeared() - Observed new nodeId: " + nodeId);
+
+            IgmpSwitchManager switchManager = new IgmpSwitchManager(nodeId, this);
+            switchManager.installIgmpMonitoringFlow(appearedTablePath);
+            this.managedSwitches.add(switchManager);
+        }
     }
 }
