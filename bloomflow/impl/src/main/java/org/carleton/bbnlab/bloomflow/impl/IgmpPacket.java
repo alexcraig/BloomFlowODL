@@ -242,4 +242,123 @@ public class IgmpPacket {
     public MessageType getMessageType() {
         return messageType;
     }
+
+    /**
+     * @return the suppressRouterProcessing
+     */
+    public boolean getSuppressRouterProcessing() {
+        return suppressRouterProcessing;
+    }
+
+    /**
+     * @param suppressRouterProcessing the suppressRouterProcessing to set
+     */
+    public void setSuppressRouterProcessing(boolean suppressRouterProcessing) {
+        this.suppressRouterProcessing = suppressRouterProcessing;
+    }
+
+    /**
+     * @return the csum
+     */
+    public char getCsum() {
+        return csum;
+    }
+
+    /**
+     * @param csum the csum to set
+     */
+    public void setCsum(char csum) {
+        this.csum = csum;
+    }
+
+    /**
+     * @return the address
+     */
+    public InetAddress getAddress() {
+        return address;
+    }
+
+    /**
+     * @param address the address to set
+     */
+    public void setAddress(InetAddress address) {
+        this.address = address;
+    }
+
+    /**
+     * @return the numSources
+     */
+    public char getNumSources() {
+        return numSources;
+    }
+
+    /**
+     * @param numSources the numSources to set
+     */
+    public void setNumSources(char numSources) {
+        this.numSources = numSources;
+    }
+
+    /**
+     * @return the sourceAddresses
+     */
+    public List<InetAddress> getSourceAddresses() {
+        return sourceAddresses;
+    }
+
+    /**
+     * @param sourceAddresses the sourceAddresses to set
+     */
+    public void setSourceAddresses(List<InetAddress> sourceAddresses) {
+        this.sourceAddresses = sourceAddresses;
+    }
+
+    /**
+     * @return the numGroupRecords
+     */
+    public char getNumGroupRecords() {
+        return numGroupRecords;
+    }
+
+    /**
+     * @param numGroupRecords the numGroupRecords to set
+     */
+    public void setNumGroupRecords(char numGroupRecords) {
+        this.numGroupRecords = numGroupRecords;
+    }
+
+    /**
+     * @return the groupRecords
+     */
+    public List<IgmpGroupRecord> getGroupRecords() {
+        return groupRecords;
+    }
+
+    /**
+     * @param groupRecords the groupRecords to set
+     */
+    public void setGroupRecords(List<IgmpGroupRecord> groupRecords) {
+        this.groupRecords = groupRecords;
+    }
+
+    /**
+     * @return the dataLenBytes
+     */
+    public int getDataLenBytes() {
+        return dataLenBytes;
+    }
+
+    /**
+     * @param dataLenBytes the dataLenBytes to set
+     */
+    public void setDataLenBytes(int dataLenBytes) {
+        this.dataLenBytes = dataLenBytes;
+    }
+
+    /**
+     * @param messageType the messageType to set
+     */
+    public void setMessageType(MessageType messageType) {
+        this.messageType = messageType;
+    }
 }

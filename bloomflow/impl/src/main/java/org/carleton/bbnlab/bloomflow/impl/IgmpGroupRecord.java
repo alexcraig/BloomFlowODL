@@ -10,7 +10,9 @@ package org.carleton.bbnlab.bloomflow.impl;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -136,5 +138,93 @@ public class IgmpGroupRecord {
             str.append(sourceAddress + "\n");
         }
         return str.toString();
+    }
+
+    /**
+     * @return the recordType
+     */
+    public RecordType getRecordType() {
+        return recordType;
+    }
+
+    /**
+     * @param recordType the recordType to set
+     */
+    public void setRecordType(RecordType recordType) {
+        this.recordType = recordType;
+    }
+
+    /**
+     * @return the auxDataLen
+     */
+    public byte getAuxDataLen() {
+        return auxDataLen;
+    }
+
+    /**
+     * @param auxDataLen the auxDataLen to set
+     */
+    public void setAuxDataLen(byte auxDataLen) {
+        this.auxDataLen = auxDataLen;
+    }
+
+    /**
+     * @return the numSources
+     */
+    public char getNumSources() {
+        return numSources;
+    }
+
+    /**
+     * @param numSources the numSources to set
+     */
+    public void setNumSources(char numSources) {
+        this.numSources = numSources;
+    }
+
+    /**
+     * @return the mcastAddress
+     */
+    public InetAddress getMcastAddress() {
+        return mcastAddress;
+    }
+
+    /**
+     * @param mcastAddress the mcastAddress to set
+     */
+    public void setMcastAddress(InetAddress mcastAddress) {
+        this.mcastAddress = mcastAddress;
+    }
+
+    /**
+     * @return the sourceAddresses
+     */
+    public List<InetAddress> getSourceAddresses() {
+        return sourceAddresses;
+    }
+
+    public Set<InetAddress> getSourceAddressSet() {
+        return new HashSet(sourceAddresses);
+    }
+
+    /**
+     * @param sourceAddresses the sourceAddresses to set
+     */
+    public void setSourceAddresses(List<InetAddress> sourceAddresses) {
+        this.sourceAddresses = sourceAddresses;
+    }
+
+    /**
+     * @return the recordLenBytes
+     */
+    public int getRecordLenBytes() {
+        return recordLenBytes;
+    }
+
+    /**
+     * @param recordLenBytes the recordLenBytes to set
+     */
+    public void setRecordLenBytes(int recordLenBytes) {
+        this.recordLenBytes = recordLenBytes;
     }
 }

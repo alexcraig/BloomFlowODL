@@ -93,6 +93,20 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
     private static final Logger LOG = LoggerFactory.getLogger(BloomflowProvider.class);
 
+    // IGMP Config Params - Move these into configuration database once the required parameters are finalized
+    public final int igmpRobustness;
+    public final int igmpQueryInterval;
+    public final int igmpQueryResponseInterval;
+    public final double igmpGroupMembershipInterval;
+    public final double igmpOtherQuerierPresentInterval;
+    public final int igmpStartupQueryInterval;
+    public final int igmpStartupQueryCount;
+    public final int igmpLastMemberQueryCount;
+    public final int igmpLastMemberQueryInterval;
+    public final int igmpLastMemberQueryTime;
+    public final int igmpUnsolicitedReportInterval;
+
+
     private final DataBroker dataBroker;
     private final NotificationProviderService notificationService;
     private final PacketProcessingService packetProcessingService;
@@ -117,6 +131,18 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
         this.dataBroker = dataBroker;
         this.notificationService = notificationService;
         this.packetProcessingService = packetProcessingService;
+
+        igmpRobustness = 2;
+        igmpQueryInterval = 125;
+        igmpQueryResponseInterval = 100;
+        igmpGroupMembershipInterval = (igmpRobustness * igmpQueryInterval) / (igmpQueryResponseInterval * 0.1);
+        igmpOtherQuerierPresentInterval = (igmpRobustness * igmpQueryInterval) / ((igmpQueryResponseInterval * 0.1) / 2);
+        igmpStartupQueryInterval = igmpQueryInterval / 4;
+        igmpStartupQueryCount = igmpRobustness;
+        igmpLastMemberQueryCount = igmpRobustness;
+        igmpLastMemberQueryInterval = 10;
+        igmpLastMemberQueryTime = igmpLastMemberQueryInterval / igmpLastMemberQueryCount;
+        igmpUnsolicitedReportInterval = 1;
     }
 
     /**
@@ -166,9 +192,9 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
     @Override
     public void onPacketReceived(PacketReceived notification) {
-        NodeId test = notification.getIngress().getValue().firstIdentifierOf(Node.class).firstKeyOf(Node.class, NodeKey.class).getId();
-        NodeConnectorId test2 = notification.getIngress().getValue().firstIdentifierOf(NodeConnector.class).firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId();
-        LOG.info("onPacketReceived() - Recieved PacketIn from (Node: " + test.getValue() + ", Port: " + test2.getValue() + ")");
+        NodeId ingressNode = notification.getIngress().getValue().firstIdentifierOf(Node.class).firstKeyOf(Node.class, NodeKey.class).getId();
+        NodeConnectorId ingressPort = notification.getIngress().getValue().firstIdentifierOf(NodeConnector.class).firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId();
+        LOG.debug("onPacketReceived() - Recieved PacketIn from (Node: " + ingressNode.getValue() + ", Port: " + ingressPort.getValue() + ")");
         byte[] payload = notification.getPayload();
 
         // Decode the received packet into Ethernet/IP
@@ -186,29 +212,24 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
             // Check IP protocol field to see if this is an IGMP packet
             byte ipProto = PacketUtils.getIpProtocol(payload);
             if (ipProto == PacketUtils.IP_PROTO_IGMP) {
-                LOG.info("onPacketReceived() - IPv4 Packet contains IGMP payload");
+                LOG.info("onPacketReceived() - IPv4 Packet contains IGMP payload (Node: " + ingressNode.getValue() + ", Port: " + ingressPort.getValue() + ")");
                 IgmpPacket receivedIgmp = new IgmpPacket(
                         Arrays.copyOfRange(payload,
                                 PacketUtils.ETHERNET_HEADER_LEN + ipHeaderLenBytes,
                                 payload.length));
-                LOG.info("onPacketReceived() - Decoded IGMP message:\n" + receivedIgmp.debugStr());
-                if (receivedIgmp.getMessageType() == IgmpPacket.MessageType.UNKNOWN_TYPE) {
-                    String headerHex = "0x ";
-                    for (byte b : Arrays.copyOfRange(payload,
-                            0,
-                            PacketUtils.ETHERNET_HEADER_LEN + ipHeaderLenBytes)) {
-                        headerHex = headerHex + String.format("%02x", b) + " ";
-                    }
-                    LOG.info("onPacketReceived() - eth + ip header bytes:\n" + headerHex);
 
-                    String igmpHex = "0x ";
-                    for (byte b : Arrays.copyOfRange(payload,
-                            PacketUtils.ETHERNET_HEADER_LEN + ipHeaderLenBytes,
-                            payload.length)) {
-                        igmpHex = igmpHex + String.format("%02x", b) + " ";
+                boolean foundIngressSwitch = false;
+                for (IgmpSwitchManager managedSwitch : this.managedSwitches) {
+                    if (managedSwitch.getNodeId().equals(nodeId)) {
+                        managedSwitch.processIgmpPacket(receivedIgmp, notification, ipHeaderLenBytes);
+                        foundIngressSwitch = true;
+                        break;
                     }
-                    LOG.info("onPacketReceived() - igmp bytes:\n" + igmpHex);
                 }
+                if (!foundIngressSwitch) {
+                    LOG.warn("onPacketReceived() - Decoded IGMP packet from unknown node: " + nodeId);
+                }
+
             }
         } else if (ethType == PacketUtils.ETHERTYPE_IPV4_W_VLAN) {
             LOG.debug("onPacketReceived() - Got 802.1q VLAN tagged frame");

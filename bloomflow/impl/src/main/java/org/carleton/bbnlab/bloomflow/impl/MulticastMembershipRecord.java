@@ -30,9 +30,9 @@ import java.util.Set;
 public class MulticastMembershipRecord {
     public class SourceRecord {
         private InetAddress sourceAddress;
-        private int sourceTimer;
+        private double sourceTimer;
 
-        public SourceRecord(InetAddress sourceAddress, int sourceTimer)  {
+        public SourceRecord(InetAddress sourceAddress, double sourceTimer)  {
             this.sourceAddress = sourceAddress;
             this.sourceTimer = sourceTimer;
         }
@@ -54,7 +54,7 @@ public class MulticastMembershipRecord {
         /**
          * @return the sourceTimer
          */
-        public int getSourceTimer() {
+        public double getSourceTimer() {
             return sourceTimer;
         }
 
@@ -67,12 +67,12 @@ public class MulticastMembershipRecord {
     }
 
     private InetAddress mcastAddress;
-    private int groupTimer;
+    private double groupTimer;
     private IgmpGroupRecord.RecordType filterMode;
     private List<SourceRecord> xSourceRecords;
     private List<SourceRecord> ySourceRecords;
 
-    public MulticastMembershipRecord(InetAddress mcastAddress, int initialTimerValue) {
+    public MulticastMembershipRecord(InetAddress mcastAddress, double initialTimerValue) {
         this.mcastAddress = mcastAddress;
         groupTimer = initialTimerValue;
         filterMode = IgmpGroupRecord.RecordType.MODE_IS_INCLUDE;
@@ -83,7 +83,7 @@ public class MulticastMembershipRecord {
     /**
      * Returns the current source timer for the specified IP address, or 0 if the specified IP is not known by this group record.
      */
-    public int getCurrSourceTimer(InetAddress ipAddress) {
+    public double getCurrSourceTimer(InetAddress ipAddress) {
         for (SourceRecord record : xSourceRecords) {
             if (record.getSourceAddress() == ipAddress) {
                 return record.getSourceTimer();
@@ -165,7 +165,7 @@ public class MulticastMembershipRecord {
     /**
      * @return the groupTimer
      */
-    public int getGroupTimer() {
+    public double getGroupTimer() {
         return groupTimer;
     }
 
