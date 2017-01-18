@@ -118,4 +118,12 @@ public class PacketUtils {
         return ByteBuffer.wrap(bytes).getInt();
     }
 
+    public static String byteString(byte[] bytes, int length) {
+        String returnStr = "";
+        for(int i = 0; i < length; i++) {
+            returnStr += String.format("%02x ", bytes[i]);
+        }
+        return returnStr;
+    }
+
 }

@@ -9,6 +9,7 @@ package org.carleton.bbnlab.bloomflow.impl;
 
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -98,11 +99,15 @@ public class IgmpPacket {
     private final int V3_QUERY_HDR_LEN = 12;
     private final int V3_REPORT_HDR_LEN = 8;
 
-    private final char FLAG_MEMBERSHIP_QUERY     = 0x11;
-    private final char FLAG_MEMBERSHIP_REPORT_V1 = 0x12;
-    private final char FLAG_MEMBERSHIP_REPORT_V2 = 0x16;
-    private final char FLAG_MEMBERSHIP_REPORT_V3 = 0x22;
-    private final char FLAG_LEAVE_GROUP_V2       = 0x17;
+    private final byte FLAG_MEMBERSHIP_QUERY     = 0x11;
+    private final byte FLAG_MEMBERSHIP_REPORT_V1 = 0x12;
+    private final byte FLAG_MEMBERSHIP_REPORT_V2 = 0x16;
+    private final byte FLAG_MEMBERSHIP_REPORT_V3 = 0x22;
+    private final byte FLAG_LEAVE_GROUP_V2       = 0x17;
+
+    // TODO: This is actually the maximum Ethernet frame length... find a more elegant way
+    // to size the buffers used for building IGMP packets
+    public static final int MAX_PACKET_LEN = 1522;
 
     private byte versionAndType;
     private MessageType messageType;
@@ -116,6 +121,7 @@ public class IgmpPacket {
     private List<InetAddress> sourceAddresses;
     private char numGroupRecords;
     private List<IgmpGroupRecord> groupRecords;
+
     private byte[] extra;    // Stores extra binary data at end of message, not currently used
 
     private int dataLenBytes;
@@ -140,6 +146,110 @@ public class IgmpPacket {
     public IgmpPacket(final byte[] payloadBytes) {
         this();
         parseMessage(payloadBytes);
+    }
+
+    static public char calcChecksum(byte[] buf, int byteLen) {
+        int length = byteLen;
+        int i = 0;
+
+        long sum = 0;
+        long data;
+
+        while (length > 1) {
+            data = (((buf[i] << 8) & 0xFF00) | ((buf[i + 1]) & 0xFF));
+            sum += data;
+            // 1's complement carry bit correction in 16-bits (detecting sign extension)
+            if ((sum & 0xFFFF0000) > 0) {
+                sum = sum & 0xFFFF;
+                sum += 1;
+            }
+
+            i += 2;
+            length -= 2;
+        }
+
+        // Handle remaining byte in odd length buffers
+        if (length > 0) {
+            sum += (buf[i] << 8 & 0xFF00);
+            // 1's complement carry bit correction in 16-bits (detecting sign extension)
+            if ((sum & 0xFFFF0000) > 0) {
+                sum = sum & 0xFFFF;
+                sum += 1;
+            }
+        }
+
+        // Final 1's complement value correction to 16-bits
+        sum = ~sum;
+        sum = sum & 0xFFFF;
+        return (char)sum;
+    }
+
+    public int packMessage(ByteBuffer outputBuf, boolean recalcChecksum) {
+        int numBytes = 0;
+        outputBuf.order(ByteOrder.BIG_ENDIAN);
+
+        if (recalcChecksum) {
+            byte[] packedNoChecksum = new byte[MAX_PACKET_LEN];
+            ByteBuffer checksumBuf = ByteBuffer.wrap(packedNoChecksum);
+            int numChecksumBufBytes = this.packMessage(checksumBuf, false);
+            this.csum = IgmpPacket.calcChecksum(packedNoChecksum, numChecksumBufBytes);
+        }
+
+        if (this.maxResponseTime >= 128) {
+            LOG.error("packMessage() - IGMP messages with floating point maxResponseTime are currently unsupported");
+        }
+        if (this.qqic >= 128) {
+            LOG.error("packMessage() - IGMP messages with floating point qqic are currently unsupported");
+        }
+
+        if (this.messageType == MessageType.MEMBERSHIP_REPORT_V3) {
+            outputBuf.put(this.versionAndType);
+            outputBuf.put((byte)0); // Reserved
+            numBytes += 2;
+            if (recalcChecksum) {
+                outputBuf.putChar(this.csum);
+            } else {
+                outputBuf.putChar((char)0);
+            }
+            numBytes += 2;
+            outputBuf.putChar((char)0);    // Reserved
+            outputBuf.putChar(this.numGroupRecords);
+            numBytes += 4;
+            for (IgmpGroupRecord record : this.groupRecords) {
+                numBytes += record.packRecord(outputBuf);
+            }
+        } else {
+            outputBuf.put(this.versionAndType);
+            numBytes += 1;
+            outputBuf.put(this.maxResponseTime);
+            numBytes += 1;
+            if (recalcChecksum) {
+                outputBuf.putChar(this.csum);
+            } else {
+                outputBuf.putChar((char)0);
+            }
+            numBytes += 2;
+            outputBuf.put(this.address.getAddress());
+            numBytes += 4;
+
+            if (this.messageType == MessageType.MEMBERSHIP_QUERY_V3) {
+                byte sFlagQrv = this.qrv;
+                if (this.suppressRouterProcessing) {
+                    sFlagQrv = (byte)(sFlagQrv | ((byte)0x07));
+                }
+                outputBuf.put(sFlagQrv);
+                outputBuf.put(this.qqic);
+                outputBuf.putChar(this.numSources);
+                numBytes += 4;
+                for (InetAddress source : this.sourceAddresses) {
+                    outputBuf.put(source.getAddress());
+                    numBytes += 4;
+                }
+            }
+        }
+
+        LOG.debug("packMessage() - numBytesPacked: " + numBytes);
+        return numBytes;
     }
 
     public int parseMessage(final byte[] payloadBytes) {
@@ -221,12 +331,18 @@ public class IgmpPacket {
         // TODO: Implement checksum verification once packing is implemented
 
         extra = Arrays.copyOfRange(payloadBytes, numBytesProcessed, payloadBytes.length);
+
+        LOG.debug("parseMessage() - numBytesProcessed: " + numBytesProcessed);
         return numBytesProcessed;
     }
 
     public String debugStr() {
         StringBuilder str = new StringBuilder();
         str.append("IGMP Message Type: " + messageType + "\n");
+        byte[] csumBytes = new byte[2];
+        csumBytes[0] = (byte)(this.csum & 0x00FF);
+        csumBytes[1] = (byte)((this.csum & 0xFF00) >> 8);
+        str.append("Checksum Byte: 0x" + String.format("%02x", csumBytes[0]) + String.format("%02x", csumBytes[1]) + "\n");
         if (messageType == MessageType.MEMBERSHIP_REPORT_V3) {
             for (IgmpGroupRecord record : groupRecords) {
                 str.append(record.debugStr());
@@ -360,5 +476,18 @@ public class IgmpPacket {
      */
     public void setMessageType(MessageType messageType) {
         this.messageType = messageType;
+        switch (this.messageType) {
+            case MEMBERSHIP_REPORT_V3:
+                this.versionAndType = this.FLAG_MEMBERSHIP_REPORT_V3;
+                break;
+            case MEMBERSHIP_QUERY_V1:
+            case MEMBERSHIP_QUERY_V2:
+            case MEMBERSHIP_QUERY_V3:
+                this.versionAndType = this.FLAG_MEMBERSHIP_QUERY;
+                break;
+            default:
+                LOG.warn("setMessageType() - Version and type binary field unknown for message type: " + this.messageType);
+        }
+
     }
 }

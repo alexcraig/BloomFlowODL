@@ -8,6 +8,7 @@
 package org.carleton.bbnlab.bloomflow.impl;
 
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -90,6 +91,19 @@ public class IgmpSwitchManager {
         this.addIgmpPort(ingressPort);
 
         LOG.info(this.nodeId.getValue() + " processIgmpPacket() - Decoded IGMP message:\n" + igmpPacket.debugStr());
+
+        // ==== DEBUG - Testing packing of previously parsed messages
+        byte[] debugPackBytes = new byte[IgmpPacket.MAX_PACKET_LEN];
+        ByteBuffer packBuff = ByteBuffer.wrap(debugPackBytes);
+        int packedBytes = igmpPacket.packMessage(packBuff, true);
+        LOG.debug("onPacketReceived - IGMP re-packed message bytes\n0x " +
+                PacketUtils.byteString(debugPackBytes, packedBytes));
+        IgmpPacket testIgmp = new IgmpPacket(
+                Arrays.copyOfRange(debugPackBytes,
+                        0,
+                        packedBytes));
+        LOG.info(this.nodeId.getValue() + " processIgmpPacket() - Re-packed IGMP message:\n" + testIgmp.debugStr());
+        /// ==== END
 
         try {
             if (igmpPacket.getMessageType() == IgmpPacket.MessageType.UNKNOWN_TYPE) {

@@ -218,6 +218,15 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
                                 PacketUtils.ETHERNET_HEADER_LEN + ipHeaderLenBytes,
                                 payload.length));
 
+                /*
+                LOG.info("onPacketReceived - IGMP message bytes (pre-decoding)\n0x " +
+                                PacketUtils.byteString(
+                                        Arrays.copyOfRange(payload,
+                                                PacketUtils.ETHERNET_HEADER_LEN + ipHeaderLenBytes,
+                                                payload.length),
+                                        payload.length - (PacketUtils.ETHERNET_HEADER_LEN + ipHeaderLenBytes)));
+                */
+
                 boolean foundIngressSwitch = false;
                 for (IgmpSwitchManager managedSwitch : this.managedSwitches) {
                     if (managedSwitch.getNodeId().equals(nodeId)) {

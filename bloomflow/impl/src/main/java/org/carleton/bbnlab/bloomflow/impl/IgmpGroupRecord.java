@@ -7,6 +7,7 @@
  */
 package org.carleton.bbnlab.bloomflow.impl;
 
+import java.nio.ByteOrder;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -77,9 +78,55 @@ public class IgmpGroupRecord {
         recordLenBytes = 0;
     }
 
+    public static byte getRecordTypeChar(RecordType type) {
+        switch (type) {
+            case MODE_IS_INCLUDE:
+                return 1;
+            case MODE_IS_EXCLUDE:
+                return 2;
+            case CHANGE_TO_INCLUDE_MODE:
+                return 3;
+            case CHANGE_TO_EXCLUDE_MODE:
+                return 4;
+            case ALLOW_NEW_SOURCES:
+                return 5;
+            case BLOCK_OLD_SOURCES:
+                return 6;
+            default:
+                return 0;
+        }
+    }
+
     public IgmpGroupRecord(final byte[] payloadBytes) {
         this();
         parseRecord(payloadBytes);
+    }
+
+    // Returns number of bytes used for packed record
+    public int packRecord(ByteBuffer outputBuf) {
+        int numBytes = 0;
+
+        if (this.auxDataLen > 0) {
+            LOG.warn("packRecord() - Binary packing is not supported for group record with auxDataLen > 0 "
+                    + ", auxData will be omitted from packed message.");
+        }
+
+        outputBuf.order(ByteOrder.BIG_ENDIAN);
+        outputBuf.put(IgmpGroupRecord.getRecordTypeChar(this.recordType));
+        numBytes += 1;
+        outputBuf.put((byte)0);
+        numBytes += 1;
+        outputBuf.putChar(this.numSources);
+        numBytes += 2;
+        outputBuf.put(this.getMcastAddress().getAddress());
+        numBytes += 4;
+
+        for(InetAddress sourceAddr : this.sourceAddresses) {
+            outputBuf.put(sourceAddr.getAddress());
+            numBytes += 4;
+        }
+
+        return numBytes;
     }
 
     // Returns number of bytes read
