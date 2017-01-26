@@ -114,11 +114,8 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
     private Registration packetInRegistration;
     private ListenerRegistration<DataTreeChangeListener> dataTreeChangeListenerRegistration;
 
-    private NodeId nodeId;
-    private InstanceIdentifier<Node> nodePath;
-    private InstanceIdentifier<Table> tablePath;
 
-    private Set<NodeId> observedNodes;
+    private Set<InstanceIdentifier<Node>> observedNodes;
 
     private final AtomicLong flowIdInc = new AtomicLong();
     private final AtomicLong flowCookieInc = new AtomicLong(0x2a00000000000000L);
@@ -150,7 +147,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
      */
     public void init() {
         LOG.debug("init() - Called");
-        this.observedNodes = new HashSet<>();
+        this.observedNodes = new HashSet<InstanceIdentifier<Node>>();
         this.managedSwitches = new ArrayList<IgmpSwitchManager>();
 
         // this.notificationService.registerNotificationListener(this); // Deprecated method
@@ -192,9 +189,15 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
     @Override
     public void onPacketReceived(PacketReceived notification) {
-        NodeId ingressNode = notification.getIngress().getValue().firstIdentifierOf(Node.class).firstKeyOf(Node.class, NodeKey.class).getId();
-        NodeConnectorId ingressPort = notification.getIngress().getValue().firstIdentifierOf(NodeConnector.class).firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId();
-        LOG.debug("onPacketReceived() - Recieved PacketIn from (Node: " + ingressNode.getValue() + ", Port: " + ingressPort.getValue() + ")");
+        InstanceIdentifier<Node> ingressNode = notification.getIngress().getValue().firstIdentifierOf(Node.class);
+        InstanceIdentifier<NodeConnector> ingressPort = notification.getIngress().getValue().firstIdentifierOf(NodeConnector.class);
+        LOG.debug("onPacketReceived()\ningressNodeII = " + ingressNode + "\ningressPortII = " + ingressPort);
+
+        // Below code uses deprecated NodeId and NodeConnectorId
+        // NodeId ingressNode = notification.getIngress().getValue().firstIdentifierOf(Node.class).firstKeyOf(Node.class, NodeKey.class).getId();
+        // NodeConnectorId ingressPort = notification.getIngress().getValue().firstIdentifierOf(NodeConnector.class).firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId();
+        LOG.debug("onPacketReceived() - Recieved PacketIn from (Node: " + ingressNode.firstKeyOf(Node.class, NodeKey.class).getId()
+                + ", Port: " + ingressPort.firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId() + ")");
         byte[] payload = notification.getPayload();
 
         // Decode the received packet into Ethernet/IP
@@ -212,7 +215,8 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
             // Check IP protocol field to see if this is an IGMP packet
             byte ipProto = PacketUtils.getIpProtocol(payload);
             if (ipProto == PacketUtils.IP_PROTO_IGMP) {
-                LOG.info("onPacketReceived() - IPv4 Packet contains IGMP payload (Node: " + ingressNode.getValue() + ", Port: " + ingressPort.getValue() + ")");
+                LOG.info("onPacketReceived() - IPv4 Packet contains IGMP payload (Node: " + ingressNode.firstKeyOf(Node.class, NodeKey.class).getId()
+                        + ", Port: " + ingressPort.firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId() + ")");
                 IgmpPacket receivedIgmp = new IgmpPacket(
                         Arrays.copyOfRange(payload,
                                 PacketUtils.ETHERNET_HEADER_LEN + ipHeaderLenBytes,
@@ -229,7 +233,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
                 boolean foundIngressSwitch = false;
                 for (IgmpSwitchManager managedSwitch : this.managedSwitches) {
-                    if (managedSwitch.getNodeId().equals(nodeId)) {
+                    if (managedSwitch.getNodeIdentifier().equals(ingressNode)) {
                         managedSwitch.processIgmpPacket(receivedIgmp, notification, ipHeaderLenBytes);
                         LOG.info(managedSwitch.debugStr());
                         foundIngressSwitch = true;
@@ -237,7 +241,8 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
                     }
                 }
                 if (!foundIngressSwitch) {
-                    LOG.warn("onPacketReceived() - Decoded IGMP packet from unknown node: " + nodeId);
+                    LOG.warn("onPacketReceived() - Decoded IGMP packet from unknown node: " +
+                            ingressNode.firstKeyOf(Node.class, NodeKey.class).getId());
                 }
 
             }
@@ -288,22 +293,21 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
     public synchronized void onSwitchAppeared(InstanceIdentifier<Table> appearedTablePath) {
         LOG.debug("onSwitchAppeared() - Called");
 
-        tablePath = appearedTablePath;
-        nodePath = tablePath.firstIdentifierOf(Node.class);
-        nodeId = nodePath.firstKeyOf(Node.class, NodeKey.class).getId();
+        InstanceIdentifier<Table> tablePath = appearedTablePath;
+        InstanceIdentifier<Node> nodePath = tablePath.firstIdentifierOf(Node.class);
 
         boolean newSwitch = true;
         for (IgmpSwitchManager sw : this.managedSwitches) {
-            if (sw.getNodeId().getValue().equals(nodeId.getValue())) {
+            if (sw.getNodeIdentifier().equals(nodePath)) {
                 newSwitch = false;
                 break;
             }
         }
 
         if (newSwitch) {
-            LOG.info("onSwitchAppeared() - Observed new nodeId: " + nodeId);
+            LOG.info("onSwitchAppeared() - Observed new node: " + nodePath.firstKeyOf(Node.class, NodeKey.class).getId());
 
-            IgmpSwitchManager switchManager = new IgmpSwitchManager(nodeId, this);
+            IgmpSwitchManager switchManager = new IgmpSwitchManager(nodePath, this);
             switchManager.installIgmpMonitoringFlow(appearedTablePath);
             this.managedSwitches.add(switchManager);
         }

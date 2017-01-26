@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 import org.opendaylight.controller.md.sal.binding.api.ReadWriteTransaction;
 import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
 import org.opendaylight.openflowplugin.api.OFConstants;
@@ -41,10 +42,10 @@ import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instru
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instruction.list.Instruction;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instruction.list.InstructionBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instruction.list.InstructionKey;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeConnectorId;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeId;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.node.NodeConnector;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.node.NodeConnectorKey;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.nodes.Node;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.nodes.NodeKey;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.node.NodeConnector;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.l2.types.rev130827.EtherType;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.ethernet.match.fields.EthernetTypeBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.match.EthernetMatchBuilder;
@@ -57,27 +58,31 @@ import org.slf4j.LoggerFactory;
 public class IgmpSwitchManager {
     private static final Logger LOG = LoggerFactory.getLogger(IgmpSwitchManager.class);
 
-    private NodeId nodeId;
-    private Map<NodeConnectorId, Map<InetAddress, MulticastMembershipRecord>> multicastRecords;
+    private InstanceIdentifier<Node> node;
+    private Map<InstanceIdentifier<NodeConnector>, Map<InetAddress, MulticastMembershipRecord>> multicastRecords;
     private BloomflowProvider provider;
 
     // TODO: These lists should be populated by querying the inventory module. For now, we simply enable IGMP support
     // on any port over which an IGMP message has previously been received.
-    private List<NodeConnectorId> ports;
-    private List<NodeConnectorId> igmpEnabledPorts;
+    private List<InstanceIdentifier<NodeConnector>> ports;
+    private List<InstanceIdentifier<NodeConnector>> igmpEnabledPorts;
 
-    public IgmpSwitchManager(NodeId nodeId, BloomflowProvider provider) {
-        this.nodeId = nodeId;
+    public IgmpSwitchManager(InstanceIdentifier<Node> node, BloomflowProvider provider) {
+        this.node = node;
         this.provider = provider;
-        ports = new ArrayList<NodeConnectorId>();
-        igmpEnabledPorts = new ArrayList<NodeConnectorId>();
-        multicastRecords = new HashMap<NodeConnectorId, Map<InetAddress, MulticastMembershipRecord>>();
+        ports = new ArrayList<InstanceIdentifier<NodeConnector>>();
+        igmpEnabledPorts = new ArrayList<InstanceIdentifier<NodeConnector>>();
+        multicastRecords = new HashMap<InstanceIdentifier<NodeConnector>, Map<InetAddress, MulticastMembershipRecord>>();
+    }
+
+    public String getNodeIdStr() {
+        return this.node.firstKeyOf(Node.class, NodeKey.class).getId().toString();
     }
 
     public String debugStr() {
-        String returnStr = "\nIGMP Switch Manager Debug State:\nNode Id: " + nodeId.getValue() + "\n";
-        for (NodeConnectorId port : multicastRecords.keySet()) {
-            returnStr += "Membership Records for Port: " + port.getValue() + "\n";
+        String returnStr = "\nIGMP Switch Manager Debug State:\nNode Id: " + getNodeIdStr() + "\n";
+        for (InstanceIdentifier<NodeConnector> port : multicastRecords.keySet()) {
+            returnStr += "Membership Records for Port: " + port.firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId() + "\n";
             for (InetAddress mcastAddr : multicastRecords.get(port).keySet()) {
                 returnStr += multicastRecords.get(port).get(mcastAddr).debugStr();
             }
@@ -87,12 +92,13 @@ public class IgmpSwitchManager {
 
     public void processIgmpPacket(IgmpPacket igmpPacket, PacketReceived packetIn, int ipHeaderLenBytes) {
         byte[] payload = packetIn.getPayload();
-        NodeConnectorId ingressPort = packetIn.getIngress().getValue().firstIdentifierOf(NodeConnector.class).firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId();
+        InstanceIdentifier<NodeConnector> ingressPort = packetIn.getIngress().getValue().firstIdentifierOf(NodeConnector.class);
         this.addIgmpPort(ingressPort);
 
-        LOG.info(this.nodeId.getValue() + " processIgmpPacket() - Decoded IGMP message:\n" + igmpPacket.debugStr());
+        LOG.info(getNodeIdStr() + " processIgmpPacket() - Decoded IGMP message:\n" + igmpPacket.debugStr());
 
         // ==== DEBUG - Testing packing of previously parsed messages
+        /*
         byte[] debugPackBytes = new byte[IgmpPacket.MAX_PACKET_LEN];
         ByteBuffer packBuff = ByteBuffer.wrap(debugPackBytes);
         int packedBytes = igmpPacket.packMessage(packBuff, true);
@@ -102,7 +108,8 @@ public class IgmpSwitchManager {
                 Arrays.copyOfRange(debugPackBytes,
                         0,
                         packedBytes));
-        LOG.info(this.nodeId.getValue() + " processIgmpPacket() - Re-packed IGMP message:\n" + testIgmp.debugStr());
+        LOG.info(getNodeIdStr() + " processIgmpPacket() - Re-packed IGMP message:\n" + testIgmp.debugStr());
+        */
         /// ==== END
 
         try {
@@ -146,12 +153,13 @@ public class IgmpSwitchManager {
     }
 
     /**
-     * Creates a MulticastMembershipRecord from the specific PacketIn event and associated IgmpGroupRecord read from the packet.
+     * Creates a MulticastMembershipRecord from the PacketIn event and associated IgmpGroupRecord read from the packet.
      *
-     * If the record did not already exist it is initialized with the provided group timer. If it did exist, the existing record IS NOT modified.
+     * If the record did not already exist it is initialized with the provided group timer.
+     * If it did exist, the existing record IS NOT modified.
      */
     public MulticastMembershipRecord createMcastMembershipRecord(IgmpGroupRecord record, PacketReceived packetIn, double groupTimer) {
-        NodeConnectorId ingressPort = packetIn.getIngress().getValue().firstIdentifierOf(NodeConnector.class).firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId();
+        InstanceIdentifier<NodeConnector> ingressPort = packetIn.getIngress().getValue().firstIdentifierOf(NodeConnector.class);
 
         if (!multicastRecords.keySet().contains(ingressPort)) {
             multicastRecords.put(ingressPort, new HashMap<InetAddress, MulticastMembershipRecord>());
@@ -190,7 +198,7 @@ public class IgmpSwitchManager {
      *
      */
     public void processCurrentStateRecord(IgmpGroupRecord packetRecord, PacketReceived packetIn,
-            NodeConnectorId ingressPort) {
+            InstanceIdentifier<NodeConnector> ingressPort) {
         LOG.info("processCurrentStateRecord() - Called");
         MulticastMembershipRecord switchRecord = this.createMcastMembershipRecord(packetRecord, packetIn,
                 this.provider.igmpGroupMembershipInterval);
@@ -319,7 +327,7 @@ public class IgmpSwitchManager {
      * in EXCLUDE mode
      */
     public void processStateChangeRecord(IgmpGroupRecord packetRecord, PacketReceived packetIn,
-            NodeConnectorId ingressPort) {
+            InstanceIdentifier<NodeConnector> ingressPort) {
         LOG.info("processStateChangeRecord() - Called");
         MulticastMembershipRecord switchRecord = this.createMcastMembershipRecord(packetRecord, packetIn,
                 this.provider.igmpGroupMembershipInterval);
@@ -502,7 +510,7 @@ public class IgmpSwitchManager {
         }
     }
 
-    public void removeGroupRecord(NodeConnectorId port, InetAddress mcastAddr) {
+    public void removeGroupRecord(InstanceIdentifier<NodeConnector> port, InetAddress mcastAddr) {
         if (this.multicastRecords.get(port) != null) {
             if (this.multicastRecords.get(port).get(mcastAddr) != null) {
                 this.multicastRecords.get(port).remove(mcastAddr);
@@ -589,7 +597,7 @@ public class IgmpSwitchManager {
         LOG.info("installIgmpMonitoringFlow() - Created forward IGMP packets to controller flow");
     }
 
-    public void addIgmpPort(NodeConnectorId port) {
+    public void addIgmpPort(InstanceIdentifier<NodeConnector> port) {
         if (!this.ports.contains(port)) {
             ports.add(port);
             LOG.info("addIgmpPort() - Added port: " + port);
@@ -604,7 +612,7 @@ public class IgmpSwitchManager {
     /**
      * @return the nodeId
      */
-    public NodeId getNodeId() {
-        return nodeId;
+    public InstanceIdentifier<Node> getNodeIdentifier() {
+        return node;
     }
 }
