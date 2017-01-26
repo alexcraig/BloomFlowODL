@@ -77,7 +77,7 @@ public class IgmpSwitchManager {
         ports = new ArrayList<InstanceIdentifier<NodeConnector>>();
         igmpEnabledPorts = new ArrayList<InstanceIdentifier<NodeConnector>>();
         multicastRecords = new HashMap<InstanceIdentifier<NodeConnector>, Map<InetAddress, MulticastMembershipRecord>>();
-        getNodeConnectors();
+        // getNodeConnectors();
     }
 
     public String getNodeIdStr() {

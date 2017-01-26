@@ -10,10 +10,12 @@ package org.carleton.bbnlab.bloomflow.impl;
 import java.util.Collection;
 import java.util.Set;
 import java.util.HashSet;
+import com.google.common.base.Optional;
 import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
 
@@ -23,6 +25,7 @@ import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
 import org.opendaylight.controller.md.sal.binding.api.DataTreeChangeListener;
 import org.opendaylight.controller.md.sal.binding.api.DataTreeIdentifier;
 import org.opendaylight.controller.md.sal.binding.api.DataTreeModification;
+import org.opendaylight.controller.md.sal.binding.api.ReadOnlyTransaction;
 import org.opendaylight.controller.md.sal.binding.api.ReadWriteTransaction;
 import org.opendaylight.controller.sal.binding.api.NotificationProviderService;
 
@@ -87,6 +90,12 @@ import org.opendaylight.openflowplugin.api.OFConstants;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.opendaylight.yang.gen.v1.urn.tbd.params.xml.ns.yang.network.topology.rev131021.network.topology.topology.Link;
+import org.opendaylight.yang.gen.v1.urn.tbd.params.xml.ns.yang.network.topology.rev131021.network.topology.Topology;
+import org.opendaylight.yang.gen.v1.urn.tbd.params.xml.ns.yang.network.topology.rev131021.NetworkTopology;
+import org.opendaylight.yang.gen.v1.urn.tbd.params.xml.ns.yang.network.topology.rev131021.network.topology.TopologyKey;
+import org.opendaylight.yang.gen.v1.urn.tbd.params.xml.ns.yang.network.topology.rev131021.TopologyId;
 
 
 public class BloomflowProvider implements PacketProcessingListener, DataTreeChangeListener<Table> {
@@ -310,6 +319,37 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
             IgmpSwitchManager switchManager = new IgmpSwitchManager(nodePath, this);
             switchManager.installIgmpMonitoringFlow(appearedTablePath);
             this.managedSwitches.add(switchManager);
+
+            getTopologyTest();
         }
+    }
+
+    public void getTopologyTest() {
+        ReadOnlyTransaction readOnlyTransaction = getDataBroker().newReadOnlyTransaction();
+        InstanceIdentifier<NetworkTopology> topoIdentifier = InstanceIdentifier.builder(NetworkTopology.class).build();
+        try {
+            Optional<NetworkTopology> dataObjectOptional = null;
+            dataObjectOptional = readOnlyTransaction.read(LogicalDatastoreType.OPERATIONAL, topoIdentifier).get();
+            if (dataObjectOptional.isPresent()) {
+               NetworkTopology topo = (NetworkTopology) dataObjectOptional.get();
+               LOG.debug("getTopologyTest() - topo =\n" + topo);
+               // TODO: Following assumes only one Topology object exists... need to determine in what conditions this assumption may be violated
+               String linkStr = "getToplogyTest() - Discovered links:";
+               for(Link link : topo.getTopology().get(0).getLink()) {
+                   // LOG.info("getTopologyTest() - Link: " + link + "\n" + link.getSource().getSourceNode() + " --> " + link.getDestination().getDestNode());
+                   linkStr += "\n" + link.getSource().getSourceNode() + " --> " + link.getDestination().getDestNode();
+               }
+               LOG.info(linkStr);
+           }
+       } catch (InterruptedException e) {
+           LOG.error("Failed to read nodes from Operation data store.");
+           readOnlyTransaction.close();
+           throw new RuntimeException("Failed to read nodes from Operation data store.", e);
+       } catch (ExecutionException e) {
+           LOG.error("Failed to read nodes from Operation data store.");
+           readOnlyTransaction.close();
+           throw new RuntimeException("Failed to read nodes from Operation data store.", e);
+       }
+       readOnlyTransaction.close();
     }
 }
