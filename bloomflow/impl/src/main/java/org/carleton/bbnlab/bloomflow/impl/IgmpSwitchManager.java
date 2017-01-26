@@ -16,7 +16,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import com.google.common.base.Optional;
 
+import org.opendaylight.controller.md.sal.binding.api.ReadOnlyTransaction;
 import org.opendaylight.controller.md.sal.binding.api.ReadWriteTransaction;
 import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
 import org.opendaylight.openflowplugin.api.OFConstants;
@@ -52,6 +55,7 @@ import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026
 import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.match.IpMatchBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.PacketReceived;
 import org.opendaylight.yangtools.yang.binding.InstanceIdentifier;
+import org.opendaylight.yangtools.yang.binding.InstanceIdentifier.InstanceIdentifierBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,6 +77,7 @@ public class IgmpSwitchManager {
         ports = new ArrayList<InstanceIdentifier<NodeConnector>>();
         igmpEnabledPorts = new ArrayList<InstanceIdentifier<NodeConnector>>();
         multicastRecords = new HashMap<InstanceIdentifier<NodeConnector>, Map<InetAddress, MulticastMembershipRecord>>();
+        getNodeConnectors();
     }
 
     public String getNodeIdStr() {
@@ -171,6 +176,32 @@ public class IgmpSwitchManager {
         }
 
         return multicastRecords.get(ingressPort).get(record.getMcastAddress());
+    }
+
+    private void getNodeConnectors() {
+        ReadOnlyTransaction readOnlyTransaction = this.provider.getDataBroker().newReadOnlyTransaction();
+        try {
+            Optional<Node> dataObjectOptional = null;
+            dataObjectOptional = readOnlyTransaction.read(LogicalDatastoreType.OPERATIONAL, this.node).get();
+            if (dataObjectOptional.isPresent()) {
+                Node node = (Node) dataObjectOptional.get();
+                for (NodeConnector nc : node.getNodeConnector()) {
+                    // Don't look for mac in discarding node connectors
+                    InstanceIdentifier<NodeConnector> newPort = this.node.child(NodeConnector.class, nc.getKey());
+                    LOG.debug("getNodeConnectors() - Discovered NodeConnector:\n" + newPort);
+                    this.addIgmpPort(newPort);
+                }
+            }
+        } catch (InterruptedException e) {
+            LOG.error("Failed to read nodes from Operation data store.");
+            readOnlyTransaction.close();
+            throw new RuntimeException("Failed to read nodes from Operation data store.", e);
+        } catch (ExecutionException e) {
+            LOG.error("Failed to read nodes from Operation data store.");
+            readOnlyTransaction.close();
+            throw new RuntimeException("Failed to read nodes from Operation data store.", e);
+        }
+        readOnlyTransaction.close();
     }
 
     /**
@@ -600,12 +631,12 @@ public class IgmpSwitchManager {
     public void addIgmpPort(InstanceIdentifier<NodeConnector> port) {
         if (!this.ports.contains(port)) {
             ports.add(port);
-            LOG.info("addIgmpPort() - Added port: " + port);
+            LOG.info("addIgmpPort() - Added port: " + port.firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId());
         }
 
         if (!this.igmpEnabledPorts.contains(port)) {
             igmpEnabledPorts.add(port);
-            LOG.info("addIgmpPort() - Added IGMP enabled port: " + port);
+            LOG.info("addIgmpPort() - Added IGMP enabled port: " + port.firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId());
         }
     }
 
