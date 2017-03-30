@@ -35,12 +35,12 @@ and is available at http://www.eclipse.org/legal/epl-v10.html
     <feature version="${project.version}">odl-bloomflow</feature>
     <feature version="${restconf.version}">odl-restconf</feature>
   </feature>
-  <feature name='odl-bloomflow-ui' version='${project.version}' description='OpenDaylight :: bloomflow :: UI'>
+  <!-- <feature name='odl-bloomflow-ui' version='${project.version}' description='OpenDaylight :: bloomflow :: UI'>
     <feature version="${project.version}">odl-bloomflow-rest</feature>
     <feature version="${restconf.version}">odl-mdsal-apidocs</feature>
     <feature version="${mdsal.version}">odl-mdsal-xsql</feature>
     <feature version="${dlux.version}">odl-dlux-yangui</feature>
-  </feature>
+  </feature> -->
   <feature name='odl-bloomflow-cli' version='${project.version}' description='OpenDaylight :: bloomflow :: CLI'>
     <feature version="${project.version}">odl-bloomflow</feature>
     <bundle>mvn:org.carleton.bbnlab.bloomflow/bloomflow-cli/{{VERSION}}</bundle>
