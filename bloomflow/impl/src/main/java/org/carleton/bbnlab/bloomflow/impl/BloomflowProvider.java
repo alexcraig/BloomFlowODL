@@ -10,12 +10,9 @@ package org.carleton.bbnlab.bloomflow.impl;
 import java.util.Collection;
 import java.util.Set;
 import java.util.HashSet;
-import com.google.common.base.Optional;
-import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
 
@@ -25,81 +22,28 @@ import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
 import org.opendaylight.controller.md.sal.binding.api.DataTreeChangeListener;
 import org.opendaylight.controller.md.sal.binding.api.DataTreeIdentifier;
 import org.opendaylight.controller.md.sal.binding.api.DataTreeModification;
-import org.opendaylight.controller.md.sal.binding.api.ReadOnlyTransaction;
-import org.opendaylight.controller.md.sal.binding.api.ReadWriteTransaction;
 import org.opendaylight.controller.sal.binding.api.NotificationProviderService;
 
 import org.opendaylight.yangtools.yang.binding.DataObject;
 import org.opendaylight.yangtools.yang.binding.InstanceIdentifier;
-import org.opendaylight.yangtools.yang.binding.InstanceIdentifier.PathArgument;
 import org.opendaylight.yangtools.concepts.Registration;
 import org.opendaylight.yangtools.concepts.ListenerRegistration;
-import org.opendaylight.yang.gen.v1.urn.ietf.params.xml.ns.yang.ietf.inet.types.rev130715.IpVersion;
-import org.opendaylight.yang.gen.v1.urn.ietf.params.xml.ns.yang.ietf.inet.types.rev130715.Uri;
-import org.opendaylight.yang.gen.v1.urn.ietf.params.xml.ns.yang.ietf.yang.types.rev130715.MacAddress;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.Nodes;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.nodes.Node;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.nodes.NodeKey;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.l2.types.rev130827.EtherType;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeId;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeConnectorId;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeConnectorRef;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeRef;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.node.NodeConnector;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.node.NodeConnectorKey;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.service.rev130819.SalFlowService;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.service.rev130819.AddFlowInputBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.service.rev130819.AddFlowOutput;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.service.rev130819.FlowTableRef;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.inventory.rev130819.FlowId;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.inventory.rev130819.tables.table.FlowBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.inventory.rev130819.tables.table.FlowKey;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.inventory.rev130819.tables.table.Flow;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.inventory.rev130819.tables.Table;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.inventory.rev130819.tables.TableKey;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.inventory.rev130819.FlowCapableNode;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.FlowModFlags;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.OutputPortValues;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.flow.InstructionsBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.flow.MatchBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.FlowRef;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instruction.instruction.ApplyActionsCaseBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instruction.instruction.apply.actions._case.ApplyActions;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instruction.instruction.apply.actions._case.ApplyActionsBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instruction.list.Instruction;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instruction.list.InstructionBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instruction.list.InstructionKey;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.action.types.rev131112.action.action.OutputActionCaseBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.action.types.rev131112.action.action.output.action._case.OutputActionBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.action.types.rev131112.action.list.Action;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.action.types.rev131112.action.list.ActionBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.action.types.rev131112.action.list.ActionKey;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.ethernet.match.fields.EthernetDestinationBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.ethernet.match.fields.EthernetSourceBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.ethernet.match.fields.EthernetTypeBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.match.EthernetMatch;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.match.EthernetMatchBuilder;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.match.IpMatch;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.match.IpMatchBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.PacketProcessingService;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.PacketProcessingListener;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.PacketReceived;
-import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.RawPacket;
-
-import org.opendaylight.openflowplugin.api.OFConstants;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.opendaylight.yang.gen.v1.urn.tbd.params.xml.ns.yang.network.topology.rev131021.network.topology.topology.Link;
-import org.opendaylight.yang.gen.v1.urn.tbd.params.xml.ns.yang.network.topology.rev131021.network.topology.Topology;
-import org.opendaylight.yang.gen.v1.urn.tbd.params.xml.ns.yang.network.topology.rev131021.NetworkTopology;
-import org.opendaylight.yang.gen.v1.urn.tbd.params.xml.ns.yang.network.topology.rev131021.network.topology.TopologyKey;
-import org.opendaylight.yang.gen.v1.urn.tbd.params.xml.ns.yang.network.topology.rev131021.TopologyId;
-
 
 public class BloomflowProvider implements PacketProcessingListener, DataTreeChangeListener<Table> {
-
     private static final Logger LOG = LoggerFactory.getLogger(BloomflowProvider.class);
 
     // IGMP Config Params - Move these into configuration database once the required parameters are finalized
@@ -130,6 +74,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
     private final AtomicLong flowCookieInc = new AtomicLong(0x2a00000000000000L);
 
     private List<IgmpSwitchManager> managedSwitches;
+    private final MulticastRoutingManager mcastRoutingManager;
 
     public BloomflowProvider(final DataBroker dataBroker,
             final NotificationProviderService notificationService,
@@ -138,11 +83,13 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
         this.notificationService = notificationService;
         this.packetProcessingService = packetProcessingService;
 
+        this.mcastRoutingManager = new MulticastRoutingManager(dataBroker, notificationService, packetProcessingService);
+
         igmpRobustness = 2;
         igmpQueryInterval = 125;
         igmpQueryResponseInterval = 100;
-        igmpGroupMembershipInterval = (igmpRobustness * igmpQueryInterval) / (igmpQueryResponseInterval * 0.1);
-        igmpOtherQuerierPresentInterval = (igmpRobustness * igmpQueryInterval) / ((igmpQueryResponseInterval * 0.1) / 2);
+        igmpGroupMembershipInterval = igmpRobustness * igmpQueryInterval / (igmpQueryResponseInterval * 0.1);
+        igmpOtherQuerierPresentInterval = igmpRobustness * igmpQueryInterval / (igmpQueryResponseInterval * 0.1 / 2);
         igmpStartupQueryInterval = igmpQueryInterval / 4;
         igmpStartupQueryCount = igmpRobustness;
         igmpLastMemberQueryCount = igmpRobustness;
@@ -156,8 +103,8 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
      */
     public void init() {
         LOG.debug("init() - Called");
-        this.observedNodes = new HashSet<InstanceIdentifier<Node>>();
-        this.managedSwitches = new ArrayList<IgmpSwitchManager>();
+        this.observedNodes = new HashSet<>();
+        this.managedSwitches = new ArrayList<>();
 
         // this.notificationService.registerNotificationListener(this); // Deprecated method
         packetInRegistration = notificationService.registerNotificationListener(this);
@@ -186,6 +133,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
             LOG.warn("close() - Closing packetInRegistration failed: {}", e.getMessage());
             LOG.debug("close() - Closing packetInRegistration failed..", e);
         }
+
         try {
             dataTreeChangeListenerRegistration.close();
         } catch (Exception e) {
@@ -213,7 +161,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
         char ethType = PacketUtils.getEtherType(payload);
         if (ethType == PacketUtils.ETHERTYPE_IPV4) {
             LOG.info("onPacketReceived() - Got IPv4 Packet");
-                // Ensure IP version is 4 (already specified by ethertype, but should be consistent with IP header)
+            // Ensure IP version is 4 (already specified by ethertype, but should be consistent with IP header)
             byte ipVersion = PacketUtils.getIpVersion(payload);
             int ipHeaderLenBytes = PacketUtils.getIpHeaderLengthBytes(payload);
             if (ipVersion != 4) {
@@ -238,7 +186,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
                                                 PacketUtils.ETHERNET_HEADER_LEN + ipHeaderLenBytes,
                                                 payload.length),
                                         payload.length - (PacketUtils.ETHERNET_HEADER_LEN + ipHeaderLenBytes)));
-                */
+                 */
 
                 boolean foundIngressSwitch = false;
                 for (IgmpSwitchManager managedSwitch : this.managedSwitches) {
@@ -320,36 +268,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
             switchManager.installIgmpMonitoringFlow(appearedTablePath);
             this.managedSwitches.add(switchManager);
 
-            getTopologyTest();
+            this.mcastRoutingManager.getTopologyTest();
         }
-    }
-
-    public void getTopologyTest() {
-        ReadOnlyTransaction readOnlyTransaction = getDataBroker().newReadOnlyTransaction();
-        InstanceIdentifier<NetworkTopology> topoIdentifier = InstanceIdentifier.builder(NetworkTopology.class).build();
-        try {
-            Optional<NetworkTopology> dataObjectOptional = null;
-            dataObjectOptional = readOnlyTransaction.read(LogicalDatastoreType.OPERATIONAL, topoIdentifier).get();
-            if (dataObjectOptional.isPresent()) {
-               NetworkTopology topo = (NetworkTopology) dataObjectOptional.get();
-               LOG.debug("getTopologyTest() - topo =\n" + topo);
-               // TODO: Following assumes only one Topology object exists... need to determine in what conditions this assumption may be violated
-               String linkStr = "getToplogyTest() - Discovered links:";
-               for(Link link : topo.getTopology().get(0).getLink()) {
-                   // LOG.info("getTopologyTest() - Link: " + link + "\n" + link.getSource().getSourceNode() + " --> " + link.getDestination().getDestNode());
-                   linkStr += "\n" + link.getSource().getSourceNode() + " --> " + link.getDestination().getDestNode();
-               }
-               LOG.info(linkStr);
-           }
-       } catch (InterruptedException e) {
-           LOG.error("Failed to read nodes from Operation data store.");
-           readOnlyTransaction.close();
-           throw new RuntimeException("Failed to read nodes from Operation data store.", e);
-       } catch (ExecutionException e) {
-           LOG.error("Failed to read nodes from Operation data store.");
-           readOnlyTransaction.close();
-           throw new RuntimeException("Failed to read nodes from Operation data store.", e);
-       }
-       readOnlyTransaction.close();
     }
 }
