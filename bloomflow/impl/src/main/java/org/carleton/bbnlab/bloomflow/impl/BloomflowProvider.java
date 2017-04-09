@@ -202,6 +202,8 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
                             ingressNode.firstKeyOf(Node.class, NodeKey.class).getId());
                 }
 
+                this.mcastRoutingManager.getTopologyTest();
+
             }
         } else if (ethType == PacketUtils.ETHERTYPE_IPV4_W_VLAN) {
             LOG.debug("onPacketReceived() - Got 802.1q VLAN tagged frame");
@@ -267,8 +269,6 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
             IgmpSwitchManager switchManager = new IgmpSwitchManager(nodePath, this);
             switchManager.installIgmpMonitoringFlow(appearedTablePath);
             this.managedSwitches.add(switchManager);
-
-            this.mcastRoutingManager.getTopologyTest();
         }
     }
 }
