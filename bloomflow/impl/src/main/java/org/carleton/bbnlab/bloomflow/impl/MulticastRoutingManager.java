@@ -268,4 +268,8 @@ public class MulticastRoutingManager {
         }
         readOnlyTransaction.close();
     }
+
+    public void processMulticastGroupEvent(MulticastGroupEvent mcastEvent) {
+        LOG.info("MulticastRoutingManager received MulticastGroupEvent");
+    }
 }

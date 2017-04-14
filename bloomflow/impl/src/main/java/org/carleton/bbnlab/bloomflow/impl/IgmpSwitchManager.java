@@ -8,7 +8,6 @@
 package org.carleton.bbnlab.bloomflow.impl;
 
 import java.net.InetAddress;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -18,7 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import com.google.common.base.Optional;
-
+import org.carleton.bbnlab.bloomflow.impl.IgmpGroupRecord.RecordType;
 import org.opendaylight.controller.md.sal.binding.api.ReadOnlyTransaction;
 import org.opendaylight.controller.md.sal.binding.api.ReadWriteTransaction;
 import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
@@ -48,36 +47,39 @@ import org.opendaylight.yang.gen.v1.urn.opendaylight.flow.types.rev131026.instru
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.node.NodeConnectorKey;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.nodes.Node;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.nodes.NodeKey;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeConnectorId;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.node.NodeConnector;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.l2.types.rev130827.EtherType;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.ethernet.match.fields.EthernetTypeBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.match.EthernetMatchBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.model.match.types.rev131026.match.IpMatchBuilder;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.packet.service.rev130709.PacketReceived;
+import org.opendaylight.yang.gen.v1.urn.tbd.params.xml.ns.yang.network.topology.rev130712.NodeId;
 import org.opendaylight.yangtools.yang.binding.InstanceIdentifier;
-import org.opendaylight.yangtools.yang.binding.InstanceIdentifier.InstanceIdentifierBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class IgmpSwitchManager {
     private static final Logger LOG = LoggerFactory.getLogger(IgmpSwitchManager.class);
 
-    private InstanceIdentifier<Node> node;
-    private Map<InstanceIdentifier<NodeConnector>, Map<InetAddress, MulticastMembershipRecord>> multicastRecords;
-    private BloomflowProvider provider;
+    private final InstanceIdentifier<Node> node;
+    private final Map<InstanceIdentifier<NodeConnector>, Map<InetAddress, MulticastMembershipRecord>> multicastRecords;
+    private final BloomflowProvider provider;
 
     // TODO: These lists should be populated by querying the inventory module. For now, we simply enable IGMP support
     // on any port over which an IGMP message has previously been received.
-    private List<InstanceIdentifier<NodeConnector>> ports;
-    private List<InstanceIdentifier<NodeConnector>> igmpEnabledPorts;
+    private final List<InstanceIdentifier<NodeConnector>> ports;
+    private final List<InstanceIdentifier<NodeConnector>> igmpEnabledPorts;
+
+    Map<InetAddress, Map<NodeConnectorId, Set<InetAddress>>> prevDesiredReceptionState;
 
     public IgmpSwitchManager(InstanceIdentifier<Node> node, BloomflowProvider provider) {
         this.node = node;
         this.provider = provider;
-        ports = new ArrayList<InstanceIdentifier<NodeConnector>>();
-        igmpEnabledPorts = new ArrayList<InstanceIdentifier<NodeConnector>>();
-        multicastRecords = new HashMap<InstanceIdentifier<NodeConnector>, Map<InetAddress, MulticastMembershipRecord>>();
-        // getNodeConnectors();
+        ports = new ArrayList<>();
+        igmpEnabledPorts = new ArrayList<>();
+        multicastRecords = new HashMap<>();
+        prevDesiredReceptionState = null;
     }
 
     public String getNodeIdStr() {
@@ -146,9 +148,10 @@ public class IgmpSwitchManager {
                         this.processStateChangeRecord(record, packetIn, ingressPort);
                     }
                 }
+                this.updateDesiredReceptionState();
             } else if (igmpPacket.getMessageType() == IgmpPacket.MessageType.MEMBERSHIP_QUERY_V3
                     && igmpPacket.getSuppressRouterProcessing() == false
-                    && (!igmpPacket.getAddress().equals(InetAddress.getByName("0.0.0.0")))) {
+                    && !igmpPacket.getAddress().equals(InetAddress.getByName("0.0.0.0"))) {
                 // TODO: Implement
                 LOG.info("processIgmpPacket() - MEMBERSHIP_QUERY_V3 not yet supported");
             }
@@ -184,7 +187,7 @@ public class IgmpSwitchManager {
             Optional<Node> dataObjectOptional = null;
             dataObjectOptional = readOnlyTransaction.read(LogicalDatastoreType.OPERATIONAL, this.node).get();
             if (dataObjectOptional.isPresent()) {
-                Node node = (Node) dataObjectOptional.get();
+                Node node = dataObjectOptional.get();
                 for (NodeConnector nc : node.getNodeConnector()) {
                     // Don't look for mac in discarding node connectors
                     InstanceIdentifier<NodeConnector> newPort = this.node.child(NodeConnector.class, nc.getKey());
@@ -233,16 +236,16 @@ public class IgmpSwitchManager {
         LOG.info("processCurrentStateRecord() - Called");
         MulticastMembershipRecord switchRecord = this.createMcastMembershipRecord(packetRecord, packetIn,
                 this.provider.igmpGroupMembershipInterval);
-        List<SourceRecord> newXSourceRecords = new ArrayList<SourceRecord>();
-        List<SourceRecord> newYSourceRecords = new ArrayList<SourceRecord>();
+        List<SourceRecord> newXSourceRecords = new ArrayList<>();
+        List<SourceRecord> newYSourceRecords = new ArrayList<>();
         Set<InetAddress> recordAddresses = packetRecord.getSourceAddressSet();
-        Set<InetAddress> newXSet = new HashSet<InetAddress>();
-        Set<InetAddress> newYSet = new HashSet<InetAddress>();
+        Set<InetAddress> newXSet = new HashSet<>();
+        Set<InetAddress> newYSet = new HashSet<>();
 
         if (switchRecord.getFilterMode() == IgmpGroupRecord.RecordType.MODE_IS_INCLUDE) {
             if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.MODE_IS_INCLUDE) {
                 // ==== Switch State: MODE_IS_INCLUDE, Message: MODE_IS_INCLUDE ====
-                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                newXSet = new HashSet<>(switchRecord.getXAddressSet());
                 newXSet.addAll(recordAddresses);
                 for (InetAddress addr : newXSet) {
                     if (recordAddresses.contains(addr)) {
@@ -254,9 +257,9 @@ public class IgmpSwitchManager {
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE) {
                 // ==== Switch State: MODE_IS_INCLUDE, Message: MODE_IS_EXCLUDE ====
                 switchRecord.setFilterMode(IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE);
-                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                newXSet = new HashSet<>(switchRecord.getXAddressSet());
                 newXSet.retainAll(recordAddresses);
-                newYSet = new HashSet<InetAddress>(recordAddresses);
+                newYSet = new HashSet<>(recordAddresses);
                 newYSet.removeAll(switchRecord.getXAddressSet());
 
                 for (InetAddress addr : newXSet) {
@@ -269,9 +272,9 @@ public class IgmpSwitchManager {
         } else if (switchRecord.getFilterMode() == IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE) {
             if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.MODE_IS_INCLUDE) {
                 // ==== Switch State: MODE_IS_EXCLUDE, Message: MODE_IS_INCLUDE ====
-                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                newXSet = new HashSet<>(switchRecord.getXAddressSet());
                 newXSet.addAll(recordAddresses);
-                newYSet = new HashSet<InetAddress>(switchRecord.getYAddressSet());
+                newYSet = new HashSet<>(switchRecord.getYAddressSet());
                 newYSet.removeAll(recordAddresses);
 
                 for (InetAddress addr : newXSet) {
@@ -287,11 +290,11 @@ public class IgmpSwitchManager {
 
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE) {
                 // ==== Switch State: MODE_IS_EXCLUDE, Message: MODE_IS_EXCLUDE ====
-                newXSet = new HashSet<InetAddress>(recordAddresses);
+                newXSet = new HashSet<>(recordAddresses);
                 newXSet.removeAll(switchRecord.getYAddressSet());
-                newYSet = new HashSet<InetAddress>(switchRecord.getYAddressSet());
+                newYSet = new HashSet<>(switchRecord.getYAddressSet());
                 newYSet.retainAll(recordAddresses);
-                Set<InetAddress> gmiSet = new HashSet<InetAddress>(recordAddresses);
+                Set<InetAddress> gmiSet = new HashSet<>(recordAddresses);
                 gmiSet.removeAll(switchRecord.getXAddressSet());
                 gmiSet.removeAll(switchRecord.getYAddressSet());
 
@@ -362,16 +365,16 @@ public class IgmpSwitchManager {
         LOG.info("processStateChangeRecord() - Called");
         MulticastMembershipRecord switchRecord = this.createMcastMembershipRecord(packetRecord, packetIn,
                 this.provider.igmpGroupMembershipInterval);
-        List<SourceRecord> newXSourceRecords = new ArrayList<SourceRecord>();
-        List<SourceRecord> newYSourceRecords = new ArrayList<SourceRecord>();
+        List<SourceRecord> newXSourceRecords = new ArrayList<>();
+        List<SourceRecord> newYSourceRecords = new ArrayList<>();
         Set<InetAddress> recordAddresses = packetRecord.getSourceAddressSet();
-        Set<InetAddress> newXSet = new HashSet<InetAddress>();
-        Set<InetAddress> newYSet = new HashSet<InetAddress>();
+        Set<InetAddress> newXSet = new HashSet<>();
+        Set<InetAddress> newYSet = new HashSet<>();
 
         if (switchRecord.getFilterMode() == IgmpGroupRecord.RecordType.MODE_IS_INCLUDE) {
             if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.ALLOW_NEW_SOURCES) {
                 // ==== Switch State: MODE_IS_INCLUDE, Message: ALLOW_NEW_SOURCES ====
-                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                newXSet = new HashSet<>(switchRecord.getXAddressSet());
                 newXSet.addAll(recordAddresses);
                 for (InetAddress addr : newXSet) {
                     if (recordAddresses.contains(addr)) {
@@ -384,7 +387,7 @@ public class IgmpSwitchManager {
                 switchRecord.setYSourceRecords(newYSourceRecords);
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.BLOCK_OLD_SOURCES) {
                 // ==== Switch State: MODE_IS_INCLUDE, Message: BLOCK_OLD_SOURCES ====
-                Set<InetAddress> queryAddrSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                Set<InetAddress> queryAddrSet = new HashSet<>(switchRecord.getXAddressSet());
                 queryAddrSet.retainAll(recordAddresses);
 
                 // TODO: Send: Q(G, A*B)
@@ -392,9 +395,9 @@ public class IgmpSwitchManager {
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.CHANGE_TO_EXCLUDE_MODE) {
                 // ==== Switch State: MODE_IS_INCLUDE, Message: CHANGE_TO_EXCLUDE_MODE ====
                 switchRecord.setFilterMode(IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE);
-                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                newXSet = new HashSet<>(switchRecord.getXAddressSet());
                 newXSet.retainAll(recordAddresses);
-                newYSet = new HashSet<InetAddress>(recordAddresses);
+                newYSet = new HashSet<>(recordAddresses);
                 newYSet.removeAll(switchRecord.getXAddressSet());
                 for (InetAddress addr : newXSet) {
                     newXSourceRecords.add(new SourceRecord(addr, switchRecord.getCurrSourceTimer(addr)));
@@ -412,7 +415,7 @@ public class IgmpSwitchManager {
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.CHANGE_TO_INCLUDE_MODE) {
                 // ==== Switch State: MODE_IS_INCLUDE, Message: CHANGE_TO_INCLUDE_MODE ====
                 switchRecord.setFilterMode(IgmpGroupRecord.RecordType.MODE_IS_INCLUDE);
-                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                newXSet = new HashSet<>(switchRecord.getXAddressSet());
                 newXSet.addAll(recordAddresses);
 
                 for (InetAddress addr : newXSet) {
@@ -432,9 +435,9 @@ public class IgmpSwitchManager {
         } else if (switchRecord.getFilterMode() == IgmpGroupRecord.RecordType.MODE_IS_EXCLUDE) {
             if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.ALLOW_NEW_SOURCES) {
                 // ==== Switch State: MODE_IS_EXCLUDE, Message: ALLOW_NEW_SOURCES ====
-                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                newXSet = new HashSet<>(switchRecord.getXAddressSet());
                 newXSet.addAll(recordAddresses);
-                newYSet = new HashSet<InetAddress>(switchRecord.getYAddressSet());
+                newYSet = new HashSet<>(switchRecord.getYAddressSet());
                 newYSet.removeAll(recordAddresses);
 
                 for (InetAddress addr : newXSet) {
@@ -452,15 +455,15 @@ public class IgmpSwitchManager {
 
             } else if (packetRecord.getRecordType() == IgmpGroupRecord.RecordType.BLOCK_OLD_SOURCES) {
                 // ==== Switch State: MODE_IS_EXCLUDE, Message: BLOCK_OLD_SOURCES ====
-                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
-                Set<InetAddress> xSubtractionSet = new HashSet<InetAddress>(recordAddresses);
+                newXSet = new HashSet<>(switchRecord.getXAddressSet());
+                Set<InetAddress> xSubtractionSet = new HashSet<>(recordAddresses);
                 xSubtractionSet.removeAll(switchRecord.getYAddressSet());
                 newXSet.addAll(xSubtractionSet);
-                newYSet = new HashSet<InetAddress>(switchRecord.getYAddressSet());
-                Set<InetAddress> groupTimerSet = new HashSet<InetAddress>(recordAddresses);
+                newYSet = new HashSet<>(switchRecord.getYAddressSet());
+                Set<InetAddress> groupTimerSet = new HashSet<>(recordAddresses);
                 groupTimerSet.removeAll(switchRecord.getXAddressSet());
                 groupTimerSet.removeAll(switchRecord.getYAddressSet());
-                Set<InetAddress> queryAddrSet = new HashSet<InetAddress>(recordAddresses);
+                Set<InetAddress> queryAddrSet = new HashSet<>(recordAddresses);
                 queryAddrSet.remove(switchRecord.getYAddressSet());
 
                 for (InetAddress addr : newXSet) {
@@ -487,7 +490,7 @@ public class IgmpSwitchManager {
                 newYSet = new HashSet(switchRecord.getYAddressSet());
                 newYSet.retainAll(recordAddresses);
 
-                HashSet<InetAddress> groupTimerSet = new HashSet<InetAddress>(recordAddresses);
+                HashSet<InetAddress> groupTimerSet = new HashSet<>(recordAddresses);
                 groupTimerSet.removeAll(switchRecord.getXAddressSet());
                 groupTimerSet.removeAll(switchRecord.getYAddressSet());
 
@@ -511,9 +514,9 @@ public class IgmpSwitchManager {
                 // ==== Switch State: MODE_IS_EXCLUDE, Message: CHANGE_TO_INCLUDE_MODE ====
                 switchRecord.setFilterMode(IgmpGroupRecord.RecordType.MODE_IS_INCLUDE);
 
-                newXSet = new HashSet<InetAddress>(switchRecord.getXAddressSet());
+                newXSet = new HashSet<>(switchRecord.getXAddressSet());
                 newXSet.addAll(recordAddresses);
-                newYSet = new HashSet<InetAddress>(switchRecord.getYAddressSet());
+                newYSet = new HashSet<>(switchRecord.getYAddressSet());
                 newYSet.removeAll(recordAddresses);
 
                 for (InetAddress addr : newXSet) {
@@ -645,5 +648,57 @@ public class IgmpSwitchManager {
      */
     public InstanceIdentifier<Node> getNodeIdentifier() {
         return node;
+    }
+
+    public void updateDesiredReceptionState() {
+
+        Map<InetAddress, Map<NodeConnectorId, Set<InetAddress>>> newReceptionState = new HashMap<>();
+
+        for (InstanceIdentifier<NodeConnector> nodeConn : multicastRecords.keySet()) {
+            NodeConnectorId portId = nodeConn.firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId();
+
+            for (InetAddress mcastAddress : multicastRecords.get(nodeConn).keySet()) {
+                MulticastMembershipRecord groupRecord = multicastRecords.get(nodeConn).get(mcastAddress);
+                if (newReceptionState.get(mcastAddress) == null) {
+                    newReceptionState.put(mcastAddress, new HashMap<NodeConnectorId, Set<InetAddress>>());
+                }
+
+                if (groupRecord.getFilterMode() == RecordType.MODE_IS_INCLUDE) {
+                    for (SourceRecord sourceRecord : groupRecord.getXSourceRecords()) {
+                        if (newReceptionState.get(mcastAddress).get(portId) == null) {
+                            newReceptionState.get(mcastAddress).put(portId, new HashSet<InetAddress>());
+                        }
+                        newReceptionState.get(mcastAddress).get(portId).add(sourceRecord.getSourceAddress());
+                    }
+                } else if (groupRecord.getFilterMode() == RecordType.MODE_IS_EXCLUDE) {
+                    if (newReceptionState.get(mcastAddress).get(portId) == null) {
+                        newReceptionState.get(mcastAddress).put(portId, new HashSet<InetAddress>());
+                    }
+                    if (groupRecord.getXSourceRecords().size() == 0) {
+                        continue;
+                    } else {
+                        for (SourceRecord sourceRecord : groupRecord.getXSourceRecords()) {
+                            newReceptionState.get(mcastAddress).get(portId).add(sourceRecord.getSourceAddress());
+                        }
+                    }
+                }
+            }
+        }
+
+        NodeId switchId = new NodeId(this.node.firstKeyOf(Node.class, NodeKey.class).getId());
+        // LOG.info("Updated Desired Multicast Reception State: " + MulticastGroupEvent.receptionStateDebugStr(switchId, newReceptionState));
+        MulticastGroupEvent mcastEvent = new MulticastGroupEvent(switchId, newReceptionState);
+
+        if (this.prevDesiredReceptionState == null) {
+            LOG.info("Desired reception state was previously null: " + MulticastGroupEvent.receptionStateDebugStr(switchId, newReceptionState));
+            this.provider.getMcastRoutingManager().processMulticastGroupEvent(mcastEvent);
+        } else if (!MulticastGroupEvent.equalReceptionState(newReceptionState, this.prevDesiredReceptionState)) {
+            LOG.info("Desired reception state changed from previous updateDesiredReceptionState() call: " + MulticastGroupEvent.receptionStateDebugStr(switchId, newReceptionState));
+            this.provider.getMcastRoutingManager().processMulticastGroupEvent(mcastEvent);
+        } else {
+            LOG.info("Desired receptioon state is identical to previous updateDesiredReceptionState() call");
+        }
+
+        this.prevDesiredReceptionState = newReceptionState;
     }
 }

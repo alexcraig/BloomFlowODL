@@ -148,13 +148,17 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
     public void onPacketReceived(PacketReceived notification) {
         InstanceIdentifier<Node> ingressNode = notification.getIngress().getValue().firstIdentifierOf(Node.class);
         InstanceIdentifier<NodeConnector> ingressPort = notification.getIngress().getValue().firstIdentifierOf(NodeConnector.class);
-        LOG.debug("onPacketReceived()\ningressNodeII = " + ingressNode + "\ningressPortII = " + ingressPort);
+        // LOG.info("onPacketReceived()\ningressNodeII = " + ingressNode + "\ningressPortII = " + ingressPort);
+
+        // NodeId ingressNodeTest = new NodeId(ingressNode.firstKeyOf(Node.class, NodeKey.class).getId());
+        // LOG.info("NodeId converted from PacketReceived notification: " + ingressNodeTest.toString());
 
         // Below code uses deprecated NodeId and NodeConnectorId
         // NodeId ingressNode = notification.getIngress().getValue().firstIdentifierOf(Node.class).firstKeyOf(Node.class, NodeKey.class).getId();
         // NodeConnectorId ingressPort = notification.getIngress().getValue().firstIdentifierOf(NodeConnector.class).firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId();
-        LOG.debug("onPacketReceived() - Recieved PacketIn from (Node: " + ingressNode.firstKeyOf(Node.class, NodeKey.class).getId()
-                + ", Port: " + ingressPort.firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId() + ")");
+       //  LOG.debug("onPacketReceived() - Recieved PacketIn from (Node: " + ingressNode.firstKeyOf(Node.class, NodeKey.class).getId()
+        //         + ", Port: " + ingressPort.firstKeyOf(NodeConnector.class, NodeConnectorKey.class).getId() + ")");
+
         byte[] payload = notification.getPayload();
 
         // Decode the received packet into Ethernet/IP
@@ -202,7 +206,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
                             ingressNode.firstKeyOf(Node.class, NodeKey.class).getId());
                 }
 
-                this.mcastRoutingManager.getTopologyTest();
+                // this.mcastRoutingManager.getTopologyTest();
 
             }
         } else if (ethType == PacketUtils.ETHERTYPE_IPV4_W_VLAN) {
@@ -270,5 +274,9 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
             switchManager.installIgmpMonitoringFlow(appearedTablePath);
             this.managedSwitches.add(switchManager);
         }
+    }
+
+    public MulticastRoutingManager getMcastRoutingManager() {
+        return this.mcastRoutingManager;
     }
 }
