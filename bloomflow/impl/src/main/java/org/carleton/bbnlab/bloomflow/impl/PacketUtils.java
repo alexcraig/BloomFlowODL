@@ -70,6 +70,18 @@ public class PacketUtils {
         return ipProtoBytes[0];
     }
 
+    public static InetAddress getSrcIp(final byte[] rawPacket) {
+        final byte[] ipSrcBytes = Arrays.copyOfRange(rawPacket, PACKET_OFFSET_IP_SRC, PACKET_OFFSET_IP_SRC+4);
+        InetAddress pktSrcIp = null;
+        try {
+            pktSrcIp = InetAddress.getByAddress(ipSrcBytes);
+        } catch(Exception e) {
+            LOG.error("Exception getting Src IP address [{}]", e.getMessage(), e);
+        }
+
+        return pktSrcIp;
+    }
+
     public static String getSrcIpStr(final byte[] rawPacket) {
         final byte[] ipSrcBytes = Arrays.copyOfRange(rawPacket, PACKET_OFFSET_IP_SRC, PACKET_OFFSET_IP_SRC+4);
         String pktSrcIpStr = null;
@@ -80,6 +92,18 @@ public class PacketUtils {
         }
 
         return pktSrcIpStr;
+    }
+
+    public static InetAddress getDstIp(final byte[] rawPacket) {
+        final byte[] ipDstBytes = Arrays.copyOfRange(rawPacket, PACKET_OFFSET_IP_DST, PACKET_OFFSET_IP_DST+4);
+        InetAddress pktDstIp = null;
+        try {
+            pktDstIp = InetAddress.getByAddress(ipDstBytes);
+        } catch(Exception e) {
+            LOG.error("Exception getting Dst IP address [{}]", e.getMessage(), e);
+        }
+
+        return pktDstIp;
     }
 
     public static String getDstIpStr(final byte[] rawPacket) {

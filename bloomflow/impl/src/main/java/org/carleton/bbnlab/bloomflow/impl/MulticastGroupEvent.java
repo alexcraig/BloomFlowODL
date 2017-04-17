@@ -8,6 +8,7 @@
 package org.carleton.bbnlab.bloomflow.impl;
 
 import java.net.InetAddress;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeConnectorId;
@@ -26,26 +27,20 @@ public class MulticastGroupEvent {
         this.desiredReceptionState = desiredReceptionState;
     }
 
-    public String debugStr() {
-        return MulticastGroupEvent.receptionStateDebugStr(this.receivingSwitch, this.desiredReceptionState);
-    }
+    public static Set<NodeConnectorId> getReceptionPorts(InetAddress mcastDstAddr, InetAddress srcAddr,
+            Map<InetAddress, Map<NodeConnectorId, Set<InetAddress>>> desiredReceptionState) {
+        Set<NodeConnectorId> portSet = new HashSet<>();
 
-    public static String receptionStateDebugStr(NodeId receivingSwitch, Map<InetAddress, Map<NodeConnectorId, Set<InetAddress>>> desiredReceptionState) {
-        String debugStr = "\n===== MulticastGroupEvent: Switch: " + receivingSwitch;
-        for (InetAddress mcastAddress : desiredReceptionState.keySet()) {
-            debugStr += "\nMcast Group Addr: " + mcastAddress;
-            for (NodeConnectorId portId : desiredReceptionState.get(mcastAddress).keySet()) {
-                debugStr += "\nPort: " + portId;
-                if (desiredReceptionState.get(mcastAddress).get(portId).size() == 0) {
-                    debugStr += "\n\tALL SOURCES";
-                } else {
-                    for (InetAddress srcAddr : desiredReceptionState.get(mcastAddress).get(portId)) {
-                        debugStr += "\n\t" + srcAddr;
-                    }
+        if (desiredReceptionState != null && desiredReceptionState.keySet().contains(mcastDstAddr)) {
+            Map<NodeConnectorId, Set<InetAddress>> groupReceptionState = desiredReceptionState.get(mcastDstAddr);
+            for (NodeConnectorId portId : groupReceptionState.keySet()) {
+                if (groupReceptionState.get(portId).size() == 0 || groupReceptionState.get(portId).contains(srcAddr)) {
+                    portSet.add(portId);
                 }
             }
         }
-        return debugStr;
+
+        return portSet;
     }
 
     public static boolean equalReceptionState(Map<InetAddress, Map<NodeConnectorId, Set<InetAddress>>> state1,
@@ -67,5 +62,27 @@ public class MulticastGroupEvent {
         }
 
         return true;
+    }
+
+    public static String receptionStateDebugStr(NodeId receivingSwitch, Map<InetAddress, Map<NodeConnectorId, Set<InetAddress>>> desiredReceptionState) {
+        String debugStr = "\n===== MulticastGroupEvent: Switch: " + receivingSwitch;
+        for (InetAddress mcastAddress : desiredReceptionState.keySet()) {
+            debugStr += "\nMcast Group Addr: " + mcastAddress;
+            for (NodeConnectorId portId : desiredReceptionState.get(mcastAddress).keySet()) {
+                debugStr += "\nPort: " + portId;
+                if (desiredReceptionState.get(mcastAddress).get(portId).size() == 0) {
+                    debugStr += "\n\tALL SOURCES";
+                } else {
+                    for (InetAddress srcAddr : desiredReceptionState.get(mcastAddress).get(portId)) {
+                        debugStr += "\n\t" + srcAddr;
+                    }
+                }
+            }
+        }
+        return debugStr;
+    }
+
+    public String debugStr() {
+        return MulticastGroupEvent.receptionStateDebugStr(this.receivingSwitch, this.desiredReceptionState);
     }
 }

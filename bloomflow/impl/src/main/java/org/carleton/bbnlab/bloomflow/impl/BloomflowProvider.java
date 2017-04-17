@@ -10,6 +10,7 @@ package org.carleton.bbnlab.bloomflow.impl;
 import java.util.Collection;
 import java.util.Set;
 import java.util.HashSet;
+import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -28,6 +29,7 @@ import org.opendaylight.yangtools.yang.binding.DataObject;
 import org.opendaylight.yangtools.yang.binding.InstanceIdentifier;
 import org.opendaylight.yangtools.concepts.Registration;
 import org.opendaylight.yangtools.concepts.ListenerRegistration;
+import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.NodeConnectorId;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.Nodes;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.nodes.Node;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.inventory.rev130819.nodes.NodeKey;
@@ -45,6 +47,7 @@ import org.slf4j.LoggerFactory;
 
 public class BloomflowProvider implements PacketProcessingListener, DataTreeChangeListener<Table> {
     private static final Logger LOG = LoggerFactory.getLogger(BloomflowProvider.class);
+    private static final int FIRST_FLOW_ID = 2534;    // Arbitrarily selected
 
     // IGMP Config Params - Move these into configuration database once the required parameters are finalized
     public final int igmpRobustness;
@@ -70,8 +73,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
     private Set<InstanceIdentifier<Node>> observedNodes;
 
-    private final AtomicLong flowIdInc = new AtomicLong();
-    private final AtomicLong flowCookieInc = new AtomicLong(0x2a00000000000000L);
+    private final AtomicLong flowIdInc = new AtomicLong(FIRST_FLOW_ID);
 
     private List<IgmpSwitchManager> managedSwitches;
     private final MulticastRoutingManager mcastRoutingManager;
@@ -83,7 +85,7 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
         this.notificationService = notificationService;
         this.packetProcessingService = packetProcessingService;
 
-        this.mcastRoutingManager = new MulticastRoutingManager(dataBroker, notificationService, packetProcessingService);
+        this.mcastRoutingManager = new MulticastRoutingManager(dataBroker, notificationService, packetProcessingService, this);
 
         igmpRobustness = 2;
         igmpQueryInterval = 125;
@@ -208,6 +210,14 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
                 // this.mcastRoutingManager.getTopologyTest();
 
+            } else {
+                // Check if the packet is destined to a multicast IP address
+                InetAddress dstAddr = PacketUtils.getDstIp(payload);
+                InetAddress srcAddr = PacketUtils.getSrcIp(payload);
+                if (dstAddr.isMulticastAddress()) {
+                    // DBEUG
+                    this.getReceptionPorts(dstAddr, srcAddr);
+                }
             }
         } else if (ethType == PacketUtils.ETHERTYPE_IPV4_W_VLAN) {
             LOG.debug("onPacketReceived() - Got 802.1q VLAN tagged frame");
@@ -278,5 +288,21 @@ public class BloomflowProvider implements PacketProcessingListener, DataTreeChan
 
     public MulticastRoutingManager getMcastRoutingManager() {
         return this.mcastRoutingManager;
+    }
+
+    public Set<NodeConnectorId> getReceptionPorts(InetAddress mcastDstAddr, InetAddress srcAddr) {
+        Set<NodeConnectorId> portSet = new HashSet<>();
+        for (IgmpSwitchManager switchManager : this.managedSwitches) {
+            Set<NodeConnectorId> switchPortSet = switchManager.getReceptionPorts(mcastDstAddr, srcAddr);
+            portSet.addAll(switchPortSet);
+        }
+
+        String debugStr = "getReceptionPorts(" + mcastDstAddr + ", " + srcAddr + ") =";
+        for (NodeConnectorId portId : portSet) {
+            debugStr += "\n" + portId;
+        }
+        LOG.info(debugStr);
+
+        return portSet;
     }
 }

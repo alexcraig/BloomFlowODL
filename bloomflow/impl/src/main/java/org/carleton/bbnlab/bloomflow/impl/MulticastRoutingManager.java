@@ -107,14 +107,16 @@ public class MulticastRoutingManager {
     private final DataBroker dataBroker;
     private final NotificationProviderService notificationService;
     private final PacketProcessingService packetProcessingService;
+    private final BloomflowProvider bloomflowProvider;
 
     public MulticastRoutingManager(final DataBroker dataBroker,
             final NotificationProviderService notificationService,
-            final PacketProcessingService packetProcessingService) {
-
+            final PacketProcessingService packetProcessingService,
+            final BloomflowProvider bloomflowProvider) {
         this.dataBroker = dataBroker;
         this.notificationService = notificationService;
         this.packetProcessingService = packetProcessingService;
+        this.bloomflowProvider = bloomflowProvider;
     }
 
     public Map<NodeId, Map<NodeId, WeightedEdge>> genWeightedEdgeMap(NetworkTopology topo) {
@@ -168,12 +170,12 @@ public class MulticastRoutingManager {
         queue.add(new ShortestPathNode(srcNode, srcNode, 0));
         Set<NodeId> seen = new HashSet<>();
 
-        String debugStr = "";
+        // String debugStr = "";
 
         try {
             while (queue.size() > 0) {
                 ShortestPathNode node1 = queue.poll();
-                debugStr = debugStr + "node1 = " + node1.nodeId + "\n";
+                // debugStr = debugStr + "node1 = " + node1.nodeId + "\n";
 
                 if (!seen.contains(node1.nodeId)) {
                     seen.add(node1.nodeId);
@@ -187,7 +189,7 @@ public class MulticastRoutingManager {
                     for (Map.Entry<NodeId, WeightedEdge> entry : connectedNodeMap.entrySet()) {
                         NodeId node2 = entry.getKey();
                         WeightedEdge edge = entry.getValue();
-                        debugStr = debugStr + "\tnode2 = " + node2 + "\n";
+                        // debugStr = debugStr + "\tnode2 = " + node2 + "\n";
 
                         if(!seen.contains(node2)) {
                             int node2PathCost = node1.pathCost + edge.weight;
@@ -201,7 +203,7 @@ public class MulticastRoutingManager {
             LOG.error("Check that network is fully connected.");
         }
 
-        LOG.debug(debugStr);
+        // LOG.debug(debugStr);
         return shortestPathMap;
     }
 
@@ -271,5 +273,9 @@ public class MulticastRoutingManager {
 
     public void processMulticastGroupEvent(MulticastGroupEvent mcastEvent) {
         LOG.info("MulticastRoutingManager received MulticastGroupEvent");
+    }
+
+    public BloomflowProvider getBloomflowProvider() {
+        return this.bloomflowProvider;
     }
 }

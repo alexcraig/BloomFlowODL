@@ -71,7 +71,7 @@ public class IgmpSwitchManager {
     private final List<InstanceIdentifier<NodeConnector>> ports;
     private final List<InstanceIdentifier<NodeConnector>> igmpEnabledPorts;
 
-    Map<InetAddress, Map<NodeConnectorId, Set<InetAddress>>> prevDesiredReceptionState;
+    Map<InetAddress, Map<NodeConnectorId, Set<InetAddress>>> desiredReceptionState;
 
     public IgmpSwitchManager(InstanceIdentifier<Node> node, BloomflowProvider provider) {
         this.node = node;
@@ -79,7 +79,7 @@ public class IgmpSwitchManager {
         ports = new ArrayList<>();
         igmpEnabledPorts = new ArrayList<>();
         multicastRecords = new HashMap<>();
-        prevDesiredReceptionState = null;
+        desiredReceptionState = null;
     }
 
     public String getNodeIdStr() {
@@ -689,16 +689,20 @@ public class IgmpSwitchManager {
         // LOG.info("Updated Desired Multicast Reception State: " + MulticastGroupEvent.receptionStateDebugStr(switchId, newReceptionState));
         MulticastGroupEvent mcastEvent = new MulticastGroupEvent(switchId, newReceptionState);
 
-        if (this.prevDesiredReceptionState == null) {
+        if (this.desiredReceptionState == null) {
             LOG.info("Desired reception state was previously null: " + MulticastGroupEvent.receptionStateDebugStr(switchId, newReceptionState));
             this.provider.getMcastRoutingManager().processMulticastGroupEvent(mcastEvent);
-        } else if (!MulticastGroupEvent.equalReceptionState(newReceptionState, this.prevDesiredReceptionState)) {
+        } else if (!MulticastGroupEvent.equalReceptionState(newReceptionState, this.desiredReceptionState)) {
             LOG.info("Desired reception state changed from previous updateDesiredReceptionState() call: " + MulticastGroupEvent.receptionStateDebugStr(switchId, newReceptionState));
             this.provider.getMcastRoutingManager().processMulticastGroupEvent(mcastEvent);
         } else {
             LOG.info("Desired receptioon state is identical to previous updateDesiredReceptionState() call");
         }
 
-        this.prevDesiredReceptionState = newReceptionState;
+        this.desiredReceptionState = newReceptionState;
+    }
+
+    public Set<NodeConnectorId> getReceptionPorts(InetAddress mcastDstAddr, InetAddress srcAddr) {
+        return MulticastGroupEvent.getReceptionPorts(mcastDstAddr, srcAddr, this.desiredReceptionState);
     }
 }
